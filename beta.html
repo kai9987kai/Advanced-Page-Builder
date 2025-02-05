@@ -119,7 +119,7 @@
       height: 2400px;
       pointer-events: none;
       background-size: 20px 20px;
-      background-image: 
+      background-image:
         linear-gradient(to right, rgba(0,0,0,0.05) 1px, transparent 1px),
         linear-gradient(to bottom, rgba(0,0,0,0.05) 1px, transparent 1px);
     }
@@ -226,8 +226,8 @@
       background: #28a745;
     }
   </style>
-  <!-- Script placed in head and wrapped in window load -->
   <script>
+    // Ensure the script runs after window load so that all elements are present.
     window.addEventListener('load', function() {
       /********************
        * GLOBAL VARIABLES *
@@ -247,6 +247,20 @@
       let currentZoom = 1;
       let isMarqueeSelecting = false;
       let marqueeStart = { x: 0, y: 0 };
+      let isDragging = false; // Prevents clearing selection while dragging
+
+      /****************************
+       * HELPER FUNCTIONS         *
+       ****************************/
+      // Converts an RGB(A) string to a hex color string.
+      function rgbToHex(rgb) {
+        if (!rgb) return '#ffffff';
+        let result = /^rgba?\((\d+),\s*(\d+),\s*(\d+)/i.exec(rgb);
+        return result ? "#" +
+          ("0" + parseInt(result[1], 10).toString(16)).slice(-2) +
+          ("0" + parseInt(result[2], 10).toString(16)).slice(-2) +
+          ("0" + parseInt(result[3], 10).toString(16)).slice(-2) : '#ffffff';
+      }
 
       /****************************
        * STATE MANAGEMENT METHODS *
@@ -254,32 +268,38 @@
       function pushState() {
         const state = workspace.innerHTML;
         undoStack.push(state);
-        historySlider.max = undoStack.length;
-        historySlider.value = undoStack.length;
+        historySlider.max = undoStack.length - 1;
+        historySlider.value = undoStack.length - 1;
         redoStack = [];
       }
       function undo() {
-        if (undoStack.length > 0) {
-          redoStack.push(workspace.innerHTML);
-          const state = undoStack.pop();
-          workspace.innerHTML = state;
-          historySlider.max = undoStack.length;
-          historySlider.value = undoStack.length;
+        if (undoStack.length > 1) {
+          redoStack.push(undoStack.pop());
+          workspace.innerHTML = undoStack[undoStack.length - 1];
+          historySlider.max = undoStack.length - 1;
+          historySlider.value = undoStack.length - 1;
           reattachEventListeners();
         }
       }
       function redo() {
         if (redoStack.length > 0) {
-          undoStack.push(workspace.innerHTML);
-          const state = redoStack.pop();
-          workspace.innerHTML = state;
-          historySlider.max = undoStack.length;
-          historySlider.value = undoStack.length;
+          undoStack.push(redoStack.pop());
+          workspace.innerHTML = undoStack[undoStack.length - 1];
+          historySlider.max = undoStack.length - 1;
+          historySlider.value = undoStack.length - 1;
           reattachEventListeners();
         }
       }
       function jumpToState(val) {
-        alert("History slider is a visual indicator only in this demo.");
+        val = parseInt(val);
+        if (val >= 0 && val < undoStack.length) {
+          redoStack = undoStack.slice(val + 1);
+          undoStack = undoStack.slice(0, val + 1);
+          workspace.innerHTML = undoStack[undoStack.length - 1];
+          historySlider.max = undoStack.length - 1;
+          historySlider.value = undoStack.length - 1;
+          reattachEventListeners();
+        }
       }
       function saveLayout() {
         localStorage.setItem('ultimateBuilderLayout', workspace.innerHTML);
@@ -336,9 +356,10 @@
         wrapper.style.boxShadow = "none";
         wrapper.setAttribute('data-rotate', '0');
         wrapper.id = 'draggable-' + (++elementCounter);
+        // Ensure child elements can receive pointer events
         el.style.width = '100%';
         el.style.height = '100%';
-        el.style.pointerEvents = 'none';
+        el.style.pointerEvents = 'auto';
         wrapper.appendChild(el);
         ['tl','tr','bl','br'].forEach(pos => {
           const handle = document.createElement('div');
@@ -353,7 +374,6 @@
         addDragListeners(wrapper);
         wrapper.addEventListener('mousedown', function(e) {
           e.stopPropagation();
-          // Support both Shift and Ctrl for multi-select
           if (e.shiftKey || e.ctrlKey) { toggleSelection(wrapper); }
           else { clearSelection(); addToSelection(wrapper); }
         });
@@ -441,6 +461,7 @@
         wrapper.style.cursor = 'move';
         wrapper.onmousedown = function(e) {
           if (e.target.classList.contains('resize-handle') || e.target.classList.contains('rotate-handle')) return;
+          isDragging = true;
           e.preventDefault();
           let startX = e.clientX, startY = e.clientY;
           let origX = parseFloat(wrapper.style.left);
@@ -462,6 +483,7 @@
           document.onmouseup = function() {
             document.removeEventListener('mousemove', onMouseMove);
             document.onmouseup = null;
+            isDragging = false;
             pushState();
           };
         };
@@ -556,13 +578,16 @@
         else addToSelection(el);
       }
       function clearSelection() {
-        selectedElements.forEach(el => el.classList.remove('selected'));
-        selectedElements = [];
-        document.getElementById('propPanel').style.display = 'none';
+        // Only clear selection if not currently dragging
+        if (!isDragging) {
+          selectedElements.forEach(el => el.classList.remove('selected'));
+          selectedElements = [];
+          document.getElementById('propPanel').style.display = 'none';
+        }
       }
       workspaceContainer.addEventListener('mousedown', function(e) {
         if (e.target === workspaceContainer || e.target === workspace) {
-          clearSelection();
+          if (!isDragging) clearSelection();
           isMarqueeSelecting = true;
           marqueeStart = { x: e.pageX, y: e.pageY };
           marquee.style.left = e.pageX + 'px';
@@ -636,14 +661,6 @@
           }
           pushState();
         }
-      }
-      function rgbToHex(rgb) {
-        if (!rgb) return '#ffffff';
-        let result = /^rgba?\((\d+),\s*(\d+),\s*(\d+)/i.exec(rgb);
-        return result ? "#" +
-          ("0" + parseInt(result[1], 10).toString(16)).slice(-2) +
-          ("0" + parseInt(result[2], 10).toString(16)).slice(-2) +
-          ("0" + parseInt(result[3], 10).toString(16)).slice(-2) : '#ffffff';
       }
 
       /***********************************
@@ -816,6 +833,7 @@
        ***************************************/
       function generateCode() {
         const elements = workspace.querySelectorAll('.draggable-wrapper');
+        let globalCSS = document.getElementById('globalStyleTag')?.innerText || '';
         let htmlCode = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -824,6 +842,7 @@
   <style>
     body, html { font-family: Arial, sans-serif; margin: 0; padding: 0; background: #f0f2f5; }
     .draggable { position: absolute; }
+    ${globalCSS}
   </style>
 </head>
 <body>
@@ -843,6 +862,7 @@
 </div>\n`;
         });
         htmlCode += `</body>\n</html>`;
+        console.log("Generated HTML Code:", htmlCode);
         codeOutput.innerText = htmlCode;
         openModal();
         return htmlCode;
@@ -989,6 +1009,18 @@
         }
         pushState();
       }
+      function bringForward() {
+        selectedElements.forEach(el => {
+          el.style.zIndex = parseInt(el.style.zIndex || 1) + 1;
+        });
+        pushState();
+      }
+      function sendBackward() {
+        selectedElements.forEach(el => {
+          el.style.zIndex = Math.max(0, parseInt(el.style.zIndex || 1) - 1);
+        });
+        pushState();
+      }
 
       /***************************************
        * EVENT REATTACHMENT AFTER STATE CHANGE*
@@ -1034,6 +1066,8 @@
        ***************************************/
       pushState();
       updateZoom();
+      historySlider.max = 0;
+      historySlider.value = 0;
       console.log("Ultimate Advanced Page Builder loaded with all features and innovations.");
 
       // Expose functions globally for inline event handlers:
@@ -1058,18 +1092,8 @@
       window.rotateSelected = rotateSelected;
       window.resetTransform = resetTransform;
       window.toggleLock = toggleLock;
-      window.bringForward = function() {
-        selectedElements.forEach(el => {
-          el.style.zIndex = parseInt(el.style.zIndex || 1) + 1;
-        });
-        pushState();
-      };
-      window.sendBackward = function() {
-        selectedElements.forEach(el => {
-          el.style.zIndex = Math.max(0, parseInt(el.style.zIndex || 1) - 1);
-        });
-        pushState();
-      };
+      window.bringForward = bringForward;
+      window.sendBackward = sendBackward;
       window.groupSelected = groupSelected;
       window.ungroupSelected = ungroupSelected;
       window.alignSelected = alignSelected;
@@ -1080,10 +1104,13 @@
       window.toggleGrid = toggleGrid;
       window.updateWorkspaceBg = updateWorkspaceBg;
       window.jumpToState = jumpToState;
-      // New Global CSS & JSON functions
       window.applyGlobalCSS = applyGlobalCSS;
       window.importJSONPrompt = importJSONPrompt;
       window.exportJSON = exportJSON;
+      window.generateCode = generateCode;
+      window.closeModal = closeModal;
+      window.copyCode = copyCode;
+      window.downloadCode = downloadCode;
     });
   </script>
 </head>
