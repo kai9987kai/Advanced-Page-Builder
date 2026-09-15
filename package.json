@@ -1,0 +1,18 @@
+{
+  "name": "advanced-page-builder",
+  "version": "2.0.0",
+  "description": "Zero-dependency, single-file visual web page builder.",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "node tools/build.mjs",
+    "check": "node tools/build.mjs --check",
+    "dev": "node tools/dev-server.mjs",
+    "test": "node tests/run.mjs",
+    "test:e2e": "node tests/e2e.mjs"
+  }
+}

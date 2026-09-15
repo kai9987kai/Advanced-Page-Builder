@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="Advanced Page Builder — a zero-dependency visual web page builder that runs entirely in your browser.">
+<!-- build:version -->
+<title>Advanced Page Builder</title>
+
+<!-- Manifest: every stylesheet and script below is inlined in this order by tools/build.mjs -->
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/shell.css">
+<link rel="stylesheet" href="css/widgets.css">
+<link rel="stylesheet" href="css/canvas.css">
+<link rel="stylesheet" href="css/panels.css">
+<link rel="stylesheet" href="css/library.css">
+<link rel="stylesheet" href="css/project.css">
+<link rel="stylesheet" href="css/tools.css">
+</head>
+<body>
+<noscript>
+  <p style="font: 16px/1.5 system-ui, sans-serif; margin: 2rem; max-width: 40rem;">
+    Advanced Page Builder needs JavaScript to run. Please enable JavaScript in your browser and reload this page.
+    Nothing is uploaded anywhere — the builder works entirely on your device.
+  </p>
+</noscript>
+<div id="apb-app" class="apb-app"></div>
+<div id="apb-live" class="apb-sr-only" aria-live="polite"></div>
+
+<!-- core (A1) -->
+<script src="js/core/apb.js"></script>
+<script src="js/core/env.js"></script>
+<script src="js/core/util.js"></script>
+<script src="js/core/events.js"></script>
+<script src="js/core/color.js"></script>
+<script src="js/core/geometry.js"></script>
+<script src="js/core/sanitize.js"></script>
+<script src="js/core/schema.js"></script>
+<script src="js/core/store.js"></script>
+<script src="js/core/commands.js"></script>
+<!-- core (A2) -->
+<script src="js/core/elements.js"></script>
+<script src="js/core/element-types.js"></script>
+<script src="js/core/style.js"></script>
+<script src="js/core/vdom.js"></script>
+<script src="js/core/snapping.js"></script>
+<script src="js/core/docops.js"></script>
+<!-- canvas (B1) -->
+<script src="js/canvas/viewport.js"></script>
+<script src="js/canvas/renderer.js"></script>
+<script src="js/canvas/overlay.js"></script>
+<script src="js/canvas/interaction.js"></script>
+<script src="js/canvas/textedit.js"></script>
+<script src="js/canvas/canvas.js"></script>
+<script src="js/features/clipboard.js"></script>
+<!-- ui (B2) -->
+<script src="js/ui/icons.js"></script>
+<script src="js/ui/widgets.js"></script>
+<script src="js/ui/dialogs.js"></script>
+<script src="js/ui/palette.js"></script>
+<script src="js/ui/shell.js"></script>
+<script src="js/features/basic-commands.js"></script>
+<!-- features (C1) -->
+<script src="js/features/layers.js"></script>
+<script src="js/features/inspector.js"></script>
+<script src="js/features/tokens.js"></script>
+<!-- features (C2) -->
+<script src="js/features/element-types-extra.js"></script>
+<script src="js/features/templates.js"></script>
+<script src="js/features/library.js"></script>
+<script src="js/features/assets.js"></script>
+<script src="js/features/components.js"></script>
+<!-- features (C3) -->
+<script src="js/features/storage.js"></script>
+<script src="js/features/importers.js"></script>
+<script src="js/features/exporters.js"></script>
+<script src="js/features/preview.js"></script>
+<script src="js/features/project-ui.js"></script>
+<!-- features (C4) -->
+<script src="js/features/pages.js"></script>
+<script src="js/features/motion.js"></script>
+<script src="js/features/audit.js"></script>
+<script src="js/features/ai.js"></script>
+<script src="js/features/history-panel.js"></script>
+<!-- bootstrap (must be last) -->
+<script src="js/app.js"></script>
+</body>
+</html>
