@@ -233,7 +233,7 @@ export async function run(page, { assert, sleep }) {
   await page.eval(() => { document.getElementById('wg-num').apbControl.value = 100; });
 
   // scrub by dragging the label
-  const lbl = await page.rect('label[for="wg-num"]');
+  const lbl = await page.rect('.apb-num-label[for="wg-num"]');
   const scrubStart = (await logFor('num')).length;
   await page.drag(lbl.cx, lbl.cy, lbl.cx + 40, lbl.cy, { steps: 10 });
   const scrubLog = (await logFor('num')).slice(scrubStart);

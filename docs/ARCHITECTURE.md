@@ -611,3 +611,75 @@ _(Implementers: append dated entries here when you extend a contract.)_
   always re-sanitize `vnode.html` with `sanitize.html(html, vnode.htmlProfile || 'html')`, apply styles via `style.cssText`, create
   SVG elements in the SVG namespace, and `patch` reuses children keyed by `data-node-id` (unkeyed children by position).
 - Also exported: `collectAttrs(vnode, tag)`, `styleString(style)`, `tagName(tag, inSvg)`, `VOID`.
+
+### 2026-09-15 — B2b-1 `dialogs` / `shell` / `app` (§8, §9)
+- `dialogs` module (used by the shell for `app.ui`): `dialog confirm prompt toast menu announce closeMenus`, getters `openDialogs menuOpen toasts`.
+  `dialog(opts)` extra opts: `dismissible = true`, `initialFocus` (element|selector), `className`, `label`, `onClose(result, reason)`;
+  action `{ label, kind: 'primary'|'danger'|'cancel'|'default', value, autofocus, disabled, run(close, api) }` (no `run` → `close(value)`);
+  returns `{ el, body, footer, actions, close(result), closed: Promise<result>, isOpen }`. Esc/close button resolve `undefined`.
+  `confirm` extra: `cancelLabel` (danger → Cancel focused, role `alertdialog`). `prompt` extra: `message`, `confirmLabel`, `cancelLabel`.
+  `toast` returns `{ el, close() }`; `timeout: 0` = sticky; identical messages collapse (×n); hover/focus pauses; errors use `role=alert`.
+  `menu(anchor, items, { label, placement, emptyLabel, onClose })` → `{ el, close(), isOpen }`; item extras: `command` (id → `data-command`),
+  `submenu` may be a function; `hidden` skips; `'-'` = separator.
+- `app.ui` extras: `unregisterPanel(id)`, `panels()`, `activePanel(side)`, `menuItems(menuId)` (resolved items), `openMainMenu()`,
+  `inspectorSections()` (sorted by order), `contextMenuItems(payload)`, `closeMenus()`, `togglePanels()`, `togglePanel(side)`,
+  `setPanelCollapsed(side, bool)`, `isCompact()`, `el`, `toolbarEl`, `statusEl`, `destroy()`. All `register*` return an unregister function.
+  `registerMenuItem` with a string command skips commands that don't exist (checked at open time); `command: { label, run(app), icon,
+  shortcut, disabled, checked, danger, submenu }` (`disabled/checked` may be functions of app). Custom menu ids get their own submenu.
+- Panels: mounted lazily on first activation while visible; `update()` is called whenever a panel becomes the visible tab
+  (panels subscribe to the store themselves for live updates). `badge(app)` is re-evaluated on store change/selection.
+- Prefs added: `leftCollapsed`, `rightCollapsed` (booleans). Widths clamp to 200–640. Drawers (< 900 px) are not persisted.
+- Commands registered by the shell: `view.togglePanels` (Mod+\), `view.toggleLeftPanel`, `view.toggleRightPanel`, `view.theme.light|dark|system`
+  (all with `checked`). Command defs may carry `checked(app)`; menus render them as `menuitemcheckbox`.
+- Canvas context menu: `app.emit('canvas:contextmenu', { clientX, clientY, nodeId })` selects `nodeId` if not selected and lists the §8 ids
+  that exist; each runs with args `{ source: 'menu', nodeId, clientX, clientY }`. Tool buttons run `tool.<name>` when registered, else `canvas.setTool`.
+- Event `ui:inspector-sections` `{ id, removed? }` fires on (un)registerInspectorSection. `app.notifyError(text)` = rate-limited error toast.
+
+### 2026-09-15 — B1b-1 `overlay` / `interaction` (§7) and `store` drafts (§6.7)
+- `overlay.create({ app, canvas })` → `{ el, refresh(info), destroy(), set(patch), clear(), layer(name) → <g>, invalidate(), markStale(),
+  selectionBounds() → page AABB|null, hitTest(clientX, clientY, { coarse }) → { type: 'handle', handle } | { type: 'rotate', corner } | { type: 'body' } | null,
+  cursorFor(hit) → CSS cursor, handlePoints() → client coords { nw n ne e se s sw w, rotate, top, center } | null, screenBox(),
+  state, box (page { x, y, w, h, rotation }: single node = its world rect, multi = union AABB), rects, handlesVisible }`.
+  Transient `set` keys: `marquee` (page rect), `guides`/`spacing` (snapping result shapes), `rotation: { angle, clientX, clientY }`,
+  `hideHandles`, `hideHover`, `hideSelection`, `label` (overrides the "W × H" text). SVG has no pointer events; hit testing is geometric
+  (handle hit 16 px, 24 px coarse; rotation zones 20 px beyond each corner plus a knob 22 px above the top edge). Handles are hidden while
+  text editing, for locked-only selections and when `view.tool !== 'select'`. The renderer's `onRender` marks overlay geometry stale and
+  `canvas.selectionBounds()` reuses it (one measurement pass per frame).
+- `interaction` module: `registerTool(name, def)`, `registerGesture(name, factory)` (global) + `create({ app, canvas })` →
+  `{ ctx, destroy, cancel(), active, gestureName, registerTool, registerGesture (instance-local), perf: { stats: { count, avg, max, p50, p95 }, reset() } }`.
+  Tool def: `down(ctx, pt)` → pending `{ drag(pt) → gesture|null, click(pt), cursor }` or a gesture; optional `dblclick`, `hover(ctx, pt) → { hover, cursor }`,
+  `contextmenu(ctx, pt) → handled`. Gesture: `{ name, cursor, move(pt), end(pt), cancel() }`. `pt = { clientX, clientY, page, shift, alt, mod, coarse, pointerType, event }`.
+  Built-in gestures `move` ({ ids, start, duplicate }), `resize` ({ handle, start }), `rotate` ({ corner, start }), `marquee` ({ scope, start, base, additive });
+  a registered `reorder` gesture ({ ids, start }) is used for stack children when present. `ctx` helpers: `history.mark()/cancel(mark)/finalize(mark, reapply)`,
+  `snapConfig(pt)`, `snapTargets(ids)`, `movableIds(ids)`, `boxItem`, `localBox`, `applyBoxes`, `selectTarget(id|null)`, `setCursor`, `setHover`, `announce`,
+  `coalesceKey(name)`, `gesture(name, opts)`, `overlay`. Viewport cursor override: CSS custom property `--apb-cursor` on `.apb-viewport[data-tool="select"]`.
+- Select tool: handles/rotation zones first; `nodeAt({ deep: Mod })` with the page root treated as background; Shift adds on press / removes on
+  click; pressing an unselected container that has children starts a marquee over its direct children (click selects it); pressing inside a
+  multi-selection box drags the selection; double-click enters a group (`view.context`) or starts text editing. Resizing a `hug`/`fill` axis
+  switches that axis' sizing to `fixed`. Positions are rounded to whole px unless snapped. `canvas:contextmenu` is emitted after selecting the
+  node under the pointer. Undo/redo during a gesture ends it without reverting.
+- `store` transactions (and undo/redo application) use draft copy-on-write: each object on a written path is copied once per transaction and
+  then written in place; nested-transaction savepoints journal in-place writes for exact rollback. Objects returned by `tx.get/tx.node` may
+  therefore reflect later writes of the same transaction — snapshot values you need before writing.
+
+### 2026-09-15 — B2b-2 `palette` / `basic-commands` (§6.8, §8)
+- `palette` module: `open(app, { query })` → `{ el, input, list, results, active, closed, close(), focus(), setQuery(text), run(index?) }` (re-opening
+  refocuses the open one), `close()`, `toggle(app, opts)`, `isOpen`, `current`, `search(app, query)` → ranked entries
+  `{ kind: 'command'|'insert'|'layer', id, title, meta, icon, keys, keysText, disabled, score, group?, positions?, type?, nodeId?, name? }`,
+  `parseQuery(text)` → `{ mode: 'all'|'commands'|'layers'|'insert', q }`, `recent(app)`, `remember(app, id)`, `PREFIXES`, `MAX_RECENT`, `MAX_RESULTS`.
+  Prefixes `>` commands, `@` layers (current page), `+` insert; an empty query lists recents, enabled commands, disabled ones, then inserts
+  (layers only with a query or `@`). Commands with `palette: false` are skipped. Palette runs call `commands.run(id, { source: 'palette' })`.
+  The palette is a `dialogs.dialog` with class `apb-palette` (input `role=combobox` + `role=listbox`, `aria-activedescendant`).
+  `view.palette` (Mod+K, Mod+Shift+P, `allowInInputs`, `palette: false`) is registered by the `palette` plugin in `ui/palette.js`.
+- Prefs added: `recentCommands` (string[] ≤ 8, most recent first; palette runs only).
+- `basic-commands` plugin (order 30) registers, when not already present: `edit.undo redo delete duplicate rename selectAll`,
+  `arrange.group ungroup wrapFrame wrapStack align.{left,hcenter,right,top,vcenter,bottom} distribute.{h,v} tidy radial matchWidth
+  matchHeight bringForward sendBackward bringToFront sendToBack lock hide rotateLeft rotateRight resetRotation`, `help.shortcuts help.about`.
+  All act on `docops.topLevel(selection)`; `arrange.lock`/`arrange.hide` toggle and expose `checked(app)`. `edit.rename` accepts
+  `args.nodeId`; it emits `layers:rename` `{ id }` when that event has listeners, else uses `ui.prompt`. `edit.selectAll` selects the
+  siblings of the selection / children of `view.context`, or every unlocked visible element inside the page's sections.
+  `arrange.radial` opens a dialog (class `apb-radial-dialog`): each change undoes the previous preview entry and re-applies
+  `docops.radial` (explicit `cx/cy` only for "Parent center"); Apply keeps one "Arrange in circle" entry; Cancel/Esc undo it.
+  Dialog classes: `apb-shortcuts-dialog` (rows `tr[data-command]`, filter by substring tokens, plus a static "Canvas" gesture section),
+  `apb-about-dialog`. Menus: Edit, Arrange (Align/Distribute/Match size/Order/Rotate submenus), Help. Styles for palette and these
+  dialogs are injected once as `<style id="apb-palette-style">` / `<style id="apb-basic-commands-style">` (static text).

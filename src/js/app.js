@@ -1,7 +1,9 @@
 /*
- * app — bootstrap (A1 skeleton; B2 takes over). Builds the `app` object (ARCHITECTURE.md §9),
- * mounts the shell (or a minimal placeholder layout), the canvas when available, runs plugins and
- * emits `ready`. Must never throw while other modules are still stubs.
+ * app — bootstrap. Builds the `app` object (ARCHITECTURE.md §9) and sets `APB.app` immediately, mounts the shell
+ * (or a minimal fallback layout), mounts the canvas into `ui.canvasHost`, runs plugins, sets `app.ready` and emits
+ * `ready`. Uncaught errors, rejections, command and plugin failures go to `app.log` (ring buffer of 500, `app.logs()`)
+ * and a rate-limited error toast. Shows a welcome toast when no storage service is registered.
+ * Must never throw while other modules are still stubs.
  */
 APB.define('app', ['util', 'events', 'env', 'schema', 'store', 'commands', 'sanitize'],
   function (util, events, env, schema, storeModule, commands, sanitize) {
@@ -65,6 +67,7 @@ APB.define('app', ['util', 'events', 'env', 'schema', 'store', 'commands', 'sani
           'clip-path:inset(50%);white-space:nowrap;border:0;';
       }
       const sorted = (list) => list.slice().sort((a, b) => (a.order ?? 100) - (b.order ?? 100));
+      const dialogs = optional('dialogs');
 
       return {
         canvasHost,
@@ -75,21 +78,32 @@ APB.define('app', ['util', 'events', 'env', 'schema', 'store', 'commands', 'sani
         registerStatusItem(def) { registry.status.push(def); },
         registerMenuItem(def) { registry.menu.push(def); },
         registerInspectorSection(def) { registry.inspector.push(def); },
+        inspectorSections: () => sorted(registry.inspector),
         toast(message, opts) {
+          if (dialogs) return dialogs.toast(message, opts);
           const el = document.createElement('div');
           el.textContent = String(message);
           el.style.cssText = 'padding:8px 12px;border:1px solid GrayText;border-radius:6px;background:Canvas;color:CanvasText;';
           toasts.append(el);
           setTimeout(() => el.remove(), (opts && opts.timeout) || 4000);
+          return { el, close: () => el.remove() };
         },
-        confirm() { return Promise.resolve(false); },
-        prompt() { return Promise.resolve(null); },
-        dialog() { return { close() {}, el: null }; },
-        menu() {},
-        announce(message) { if (live) { live.textContent = ''; live.textContent = String(message); } },
+        confirm(o) { return dialogs ? dialogs.confirm(o) : Promise.resolve(false); },
+        prompt(o) { return dialogs ? dialogs.prompt(o) : Promise.resolve(null); },
+        dialog(o) { return dialogs ? dialogs.dialog(o) : { close() {}, el: null }; },
+        menu(a, items, o) { return dialogs ? dialogs.menu(a, items, o) : null; },
+        announce(message) {
+          if (dialogs) { dialogs.announce(message); return; }
+          if (live) { live.textContent = ''; live.textContent = String(message); }
+        },
         _registry: registry
       };
     }
+
+    /** Errors that browsers report but that never indicate a user-facing failure. */
+    const BENIGN_ERRORS = /ResizeObserver loop|Script error\.?$/i;
+    const ERROR_TOAST_INTERVAL = 5000;
+    const truncate = (s, n) => { const t = String(s == null ? '' : s); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
 
     function start(options) {
       if (app) return app;
@@ -129,11 +143,43 @@ APB.define('app', ['util', 'events', 'env', 'schema', 'store', 'commands', 'sani
       };
       APB.app = app;
 
-      window.addEventListener('error', (e) => app.log(e.message || 'Uncaught error', { level: 'error', data: { source: e.filename, line: e.lineno } }));
-      window.addEventListener('unhandledrejection', (e) => app.log('Unhandled rejection: ' + (e.reason && e.reason.message || e.reason), { level: 'error' }));
+      // User-facing failure reporting: every error is logged; at most one toast per interval (repeats are dropped).
+      let lastErrorToast = 0;
+      let lastErrorText = '';
+      function notifyError(text) {
+        const now = Date.now();
+        if (!app.ui || typeof app.ui.toast !== 'function') return;
+        if (now - lastErrorToast < ERROR_TOAST_INTERVAL || (text === lastErrorText && now - lastErrorToast < ERROR_TOAST_INTERVAL * 6)) return;
+        lastErrorToast = now;
+        lastErrorText = text;
+        try { app.ui.toast(text, { kind: 'error', timeout: 6000 }); } catch (_) { /* never throw from the error path */ }
+      }
+      app.notifyError = notifyError;
+
+      window.addEventListener('error', (e) => {
+        const message = (e && e.message) || (e && e.error && e.error.message) || 'Uncaught error';
+        if (BENIGN_ERRORS.test(message)) return;
+        app.log(message, { level: 'error', data: { source: e.filename, line: e.lineno, column: e.colno, stack: e.error && e.error.stack } });
+        notifyError('Something went wrong: ' + truncate(message, 120));
+      });
+      window.addEventListener('unhandledrejection', (e) => {
+        const reason = e && e.reason;
+        const message = (reason && reason.message) || String(reason);
+        if (reason && reason.name === 'AbortError') return;
+        app.log('Unhandled rejection: ' + message, { level: 'error', data: { stack: reason && reason.stack } });
+        notifyError('Something went wrong: ' + truncate(message, 120));
+      });
 
       commands.setApp(app);
       commands.attach(document);
+      if (typeof commands.on === 'function') {
+        commands.on('error', (p) => {
+          const def = commands.get(p.id);
+          const message = (p.error && p.error.message) || String(p.error);
+          app.log('Command "' + p.id + '" failed: ' + message, { level: 'error', data: { id: p.id, stack: p.error && p.error.stack } });
+          notifyError('Could not ' + ((def && def.title) || p.id).toLowerCase() + ': ' + truncate(message, 100));
+        });
+      }
 
       const shell = optional('shell');
       if (shell && typeof shell.mount === 'function') {
@@ -156,12 +202,23 @@ APB.define('app', ['util', 'events', 'env', 'schema', 'store', 'commands', 'sani
           plugin.init(app);
         } catch (err) {
           console.error('[APB] plugin "' + plugin.id + '" failed:', err);
-          app.log('Plugin "' + plugin.id + '" failed: ' + (err && err.message), { level: 'error' });
+          app.log('Plugin "' + plugin.id + '" failed: ' + (err && err.message), { level: 'error', data: { stack: err && err.stack } });
+          notifyError('A feature failed to start (' + plugin.id + '). Some tools may be unavailable.');
         }
       }
 
       app.ready = true;
       app.emit('ready', { app });
+
+      if (!app.services.storage && opts.welcome !== false) {
+        // Without the storage plugin nothing is persisted; say so once instead of silently losing work.
+        setTimeout(() => {
+          try {
+            app.ui.toast('Welcome to Advanced Page Builder. Saving isn’t available in this build — export your work before you close the tab.',
+              { kind: 'info', timeout: 7000 });
+          } catch (_) { /* optional */ }
+        }, 0);
+      }
       return app;
     }
 

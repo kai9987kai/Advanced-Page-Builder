@@ -860,6 +860,7 @@ APB.define('widgets', ['env', 'color', 'commands', 'icons'], function (env, colo
       commit: commitText
     };
     root.apbControl = api;
+    input.apbControl = api; // reachable from the labelled input too (ids and label[for] point at it)
     return root;
   }
 

@@ -342,3 +342,138 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* ---------------------------------------------------- overlay & interaction (B1b) */
+
+.apb-viewport {
+  --apb-ov-accent: var(--apb-accent, #2563eb);
+  --apb-ov-accent-soft: rgba(37, 99, 235, 0.08);
+  --apb-ov-handle-fill: #ffffff;
+  --apb-ov-guide: #f2366b;
+  --apb-ov-label-bg: var(--apb-accent, #2563eb);
+  --apb-ov-label-fg: #ffffff;
+  --apb-ov-locked: #64748b;
+}
+
+:root[data-theme="dark"] .apb-viewport {
+  --apb-ov-accent: var(--apb-accent, #60a5fa);
+  --apb-ov-accent-soft: rgba(96, 165, 250, 0.12);
+  --apb-ov-handle-fill: #0f1115;
+  --apb-ov-guide: #ff5c8a;
+  --apb-ov-label-fg: #0b1220;
+  --apb-ov-locked: #94a3b8;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .apb-viewport {
+    --apb-ov-accent: var(--apb-accent, #60a5fa);
+    --apb-ov-accent-soft: rgba(96, 165, 250, 0.12);
+    --apb-ov-handle-fill: #0f1115;
+    --apb-ov-guide: #ff5c8a;
+    --apb-ov-label-fg: #0b1220;
+    --apb-ov-locked: #94a3b8;
+  }
+}
+
+@media (forced-colors: active) {
+  .apb-viewport {
+    --apb-ov-accent: Highlight;
+    --apb-ov-accent-soft: transparent;
+    --apb-ov-handle-fill: Canvas;
+    --apb-ov-guide: LinkText;
+    --apb-ov-label-bg: Highlight;
+    --apb-ov-label-fg: HighlightText;
+    --apb-ov-locked: GrayText;
+  }
+}
+
+.apb-viewport[data-tool="select"]:not(.apb-space-pan):not(.apb-panning) {
+  cursor: var(--apb-cursor, default);
+}
+
+.apb-overlay .apb-ov-hover {
+  fill: none;
+  stroke: var(--apb-ov-accent);
+  stroke-width: 1.5px;
+}
+
+.apb-overlay .apb-ov-outline {
+  fill: none;
+  stroke: var(--apb-ov-accent);
+  stroke-width: 1px;
+  opacity: 0.75;
+}
+
+.apb-overlay .apb-ov-box {
+  fill: none;
+  stroke: var(--apb-ov-accent);
+  stroke-width: 1px;
+}
+
+.apb-overlay .apb-ov-box.apb-ov-locked {
+  stroke: var(--apb-ov-locked);
+  stroke-dasharray: 4 3;
+}
+
+.apb-overlay .apb-ov-handles,
+.apb-overlay .apb-ov-rotate-knob {
+  fill: var(--apb-ov-handle-fill);
+  stroke: var(--apb-ov-accent);
+  stroke-width: 1px;
+}
+
+.apb-overlay .apb-ov-rotate-line {
+  fill: none;
+  stroke: var(--apb-ov-accent);
+  stroke-width: 1px;
+}
+
+.apb-overlay .apb-ov-label rect {
+  fill: var(--apb-ov-label-bg);
+}
+
+.apb-overlay .apb-ov-label text {
+  fill: var(--apb-ov-label-fg);
+  font: 500 11px/1 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.apb-overlay .apb-ov-tip rect {
+  fill: #111827;
+}
+
+.apb-overlay .apb-ov-tip text {
+  fill: #ffffff;
+}
+
+.apb-overlay .apb-ov-marquee {
+  fill: var(--apb-ov-accent-soft);
+  stroke: var(--apb-ov-accent);
+  stroke-width: 1px;
+}
+
+.apb-overlay .apb-ov-guide,
+.apb-overlay .apb-ov-spacing {
+  fill: none;
+  stroke: var(--apb-ov-guide);
+  stroke-width: 1px;
+}
+
+.apb-overlay .apb-ov-spacing-label rect {
+  fill: var(--apb-ov-guide);
+}
+
+.apb-overlay .apb-ov-spacing-label text {
+  fill: #ffffff;
+}
+
+.apb-overlay .apb-ov-badge rect {
+  fill: var(--apb-ov-locked);
+}
+
+.apb-overlay .apb-ov-badge svg,
+.apb-overlay .apb-ov-badge path {
+  color: #ffffff;
+  stroke: #ffffff;
+  fill: none;
+}

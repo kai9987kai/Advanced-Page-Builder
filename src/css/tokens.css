@@ -394,12 +394,16 @@ body {
     --apb-duration-slow: 0ms;
   }
 
-  *,
-  *::before,
-  *::after {
+  /* Only transitions that were actually declared get shortened: a bare `transition-duration` on every
+     element would turn the default `transition-property: all` into real transitions for every style
+     change (including the user's document on the canvas, which would skew layout reads while dragging).
+     The canvas artboard is excluded entirely; motion previews there handle reduced motion themselves. */
+  :where(*:not(.apb-artboard, .apb-artboard *)),
+  :where(*:not(.apb-artboard, .apb-artboard *))::before,
+  :where(*:not(.apb-artboard, .apb-artboard *))::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
     scroll-behavior: auto !important;
   }
 }

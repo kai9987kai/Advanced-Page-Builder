@@ -70,6 +70,70 @@ APB.define('store', ['util', 'events', 'schema'], function (util, events, schema
     return out.reverse();
   }
 
+  /*
+   * Draft copy-on-write. Within one transaction (or one undo/redo application) every object on a
+   * written path is shallow-copied at most once: copies are recorded in `owned` and later writes
+   * mutate them in place. Objects of the committed document are never owned, so they stay immutable.
+   * While a nested transaction is open (`depth > 0`), in-place writes are journaled so its savepoint
+   * can roll back exactly.
+   */
+  function newDraft() {
+    return { owned: new WeakSet(), journal: null, depth: 0 };
+  }
+
+  function draftWritable(cur, draft) {
+    if (cur !== null && typeof cur === 'object' && draft.owned.has(cur)) return cur;
+    const copy = Array.isArray(cur) ? cur.slice() : Object.assign({}, cur !== null && typeof cur === 'object' ? cur : {});
+    draft.owned.add(copy);
+    return copy;
+  }
+
+  function journalWrite(draft, obj, key) {
+    if (!draft.journal || !draft.owned.has(obj)) return;
+    if (Array.isArray(obj)) draft.journal.push({ obj, arr: obj.slice() });
+    else draft.journal.push({ obj, key, had: Object.prototype.hasOwnProperty.call(obj, key), old: obj[key] });
+  }
+
+  function rollbackJournal(journal, length) {
+    if (!journal) return;
+    for (let i = journal.length - 1; i >= length; i--) {
+      const j = journal[i];
+      if (j.arr) { j.obj.length = 0; Array.prototype.push.apply(j.obj, j.arr); } else if (j.had) j.obj[j.key] = j.old; else delete j.obj[j.key];
+    }
+    journal.length = length;
+  }
+
+  function draftSetIn(cur, keys, i, value, draft) {
+    const k = keys[i];
+    const isObj = cur !== null && typeof cur === 'object';
+    const exists = isObj && Object.prototype.hasOwnProperty.call(cur, k);
+    if (i === keys.length - 1) {
+      if (value === undefined) {
+        if (!exists) return cur;
+        journalWrite(draft, cur, k);
+        const w = draftWritable(cur, draft);
+        if (Array.isArray(w)) w.splice(Number(k), 1); else delete w[k];
+        return w;
+      }
+      if (exists && cur[k] === value) return cur;
+      journalWrite(draft, cur, k);
+      const w = draftWritable(cur, draft);
+      w[k] = value;
+      return w;
+    }
+    const child = exists ? cur[k] : undefined;
+    const childObj = child !== null && typeof child === 'object';
+    if (value === undefined && !childObj) return cur;
+    let base = child;
+    if (!childObj) { base = {}; draft.owned.add(base); }
+    const nextChild = draftSetIn(base, keys, i + 1, value, draft);
+    if (exists && nextChild === child) return cur;
+    journalWrite(draft, cur, k);
+    const w = draftWritable(cur, draft);
+    w[k] = nextChild;
+    return w;
+  }
+
   function create(initialDoc, options) {
     const opts = options || {};
     const now = typeof opts.now === 'function' ? opts.now : () => Date.now();
@@ -172,12 +236,13 @@ APB.define('store', ['util', 'events', 'schema'], function (util, events, schema
           cur = next;
         }
         if (!inverse) inverse = { path: keys.join('.'), value: old };
-        const nextState = util.setPathImmutable(state, keys, val);
-        if (nextState === state) return;
+        // `old !== val` guarantees a change; objects this transaction already copied are written in place.
+        const before = keys.length === 1 ? { nodes: state.nodes } : state;
+        const nextState = draftSetIn(state, keys, 0, val, ctx.draft);
         ctx.state = nextState;
         ctx.ops.push({ path: keys.join('.'), value: val });
         ctx.inverse.push(inverse);
-        classify(ctx.info, keys, state, nextState);
+        classify(ctx.info, keys, before, nextState);
       }
 
       function get(path) {
@@ -353,29 +418,37 @@ APB.define('store', ['util', 'events', 'schema'], function (util, events, schema
       if (current) {
         // Nested: join the outer transaction with a savepoint for rollback.
         const ctx = current;
+        const draft = ctx.draft;
+        if (!draft.journal) draft.journal = [];
         const save = {
           state: ctx.state, ops: ctx.ops.length, inverse: ctx.inverse.length, selection: ctx.selection,
-          nodes: new Set(ctx.info.nodes), structure: ctx.info.structure, global: ctx.info.global
+          nodes: ctx.info.nodes.size, structure: ctx.info.structure, global: ctx.info.global, journal: draft.journal.length
         };
+        draft.depth++;
         try {
           const result = fn(ctx.tx);
           if (o.select) ctx.selection = normalizeIds(o.select, ctx.state);
           return result;
         } catch (err) {
+          rollbackJournal(draft.journal, save.journal);
           ctx.state = save.state;
           ctx.ops.length = save.ops;
           ctx.inverse.length = save.inverse;
           ctx.selection = save.selection;
-          ctx.info.nodes = save.nodes;
+          if (ctx.info.nodes.size > save.nodes) ctx.info.nodes = new Set(Array.from(ctx.info.nodes).slice(0, save.nodes));
           ctx.info.structure = save.structure;
           ctx.info.global = save.global;
           throw err;
+        } finally {
+          draft.depth--;
+          if (draft.depth === 0) draft.journal = null;
         }
       }
 
       const ctx = {
         label: String(label || 'Edit'), state: doc, ops: [], inverse: [], info: newInfo(),
-        selection: selection, selBefore: selection, tx: null, closed: false
+        selection: selection, selBefore: selection, tx: null, closed: false,
+        draft: newDraft()
       };
       ctx.tx = makeTx(ctx);
       current = ctx;
@@ -476,12 +549,13 @@ APB.define('store', ['util', 'events', 'schema'], function (util, events, schema
 
     function applyOps(opList) {
       const info = newInfo();
+      const draft = newDraft();
       let state = doc;
       for (const op of opList) {
         const keys = op.path.split('.');
-        const next = util.setPathImmutable(state, keys, op.value);
-        classify(info, keys, state, next);
-        state = next;
+        const before = keys.length === 1 ? { nodes: state.nodes } : state;
+        state = draftSetIn(state, keys, 0, op.value, draft);
+        classify(info, keys, before, state);
       }
       doc = util.setPathImmutable(state, ['updatedAt'], new Date(now()).toISOString());
       return info;

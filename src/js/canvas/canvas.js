@@ -137,6 +137,8 @@ APB.define('canvas', ['util', 'events', 'schema', 'elements', 'geometry', 'comma
       }
 
       function selectionBounds() {
+        const ov = api.overlay;
+        if (ov && typeof ov.selectionBounds === 'function') return ov.selectionBounds();
         if (selBounds !== undefined) return selBounds;
         const ids = store.selection;
         selBounds = ids.length ? renderer.bounds(ids) : null;
@@ -185,7 +187,12 @@ APB.define('canvas', ['util', 'events', 'schema', 'elements', 'geometry', 'comma
 
       const renderer = rendererModule.create({
         app, artboard, requestFrame,
-        onRender: () => { selBounds = undefined; }
+        onRender: () => {
+          selBounds = undefined;
+          let ov = null;
+          try { ov = api.overlay; } catch (_) { ov = null; } // api is created after the renderer
+          if (ov && typeof ov.markStale === 'function') ov.markStale();
+        }
       });
 
       const viewport = viewportModule.create({
