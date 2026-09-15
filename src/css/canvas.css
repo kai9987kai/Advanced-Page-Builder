@@ -1,1 +1,344 @@
-/* stub — owned by B1 */
+/* canvas — viewport, world/artboard, rulers, grid, and editor-only base styles for rendered content (B1). */
+
+/* ------------------------------------------------------------------ theme */
+
+.apb-viewport {
+  --apb-canvas-bg: #e6e8ec;
+  --apb-canvas-label: #4b5563;
+  --apb-canvas-page-edge: rgba(15, 23, 42, 0.12);
+  --apb-canvas-page-shadow: rgba(15, 23, 42, 0.10);
+  --apb-canvas-focus: var(--apb-focus, #2563eb);
+  --apb-ruler-bg: #f8fafc;
+  --apb-ruler-fg: #4b5563;
+  --apb-ruler-tick: #9aa3af;
+  --apb-ruler-border: #d1d5db;
+  --apb-ruler-accent: var(--apb-accent, #2563eb);
+  --apb-ruler-sel: rgba(37, 99, 235, 0.16);
+  --apb-grid-color: rgba(71, 85, 105, 0.22);
+  --apb-hidden-outline: #64748b;
+  --apb-edit-outline: var(--apb-accent, #2563eb);
+}
+
+:root[data-theme="dark"] .apb-viewport {
+  --apb-canvas-bg: #17191d;
+  --apb-canvas-label: #b4bac4;
+  --apb-canvas-page-edge: rgba(255, 255, 255, 0.10);
+  --apb-canvas-page-shadow: rgba(0, 0, 0, 0.45);
+  --apb-canvas-focus: var(--apb-focus, #60a5fa);
+  --apb-ruler-bg: #202329;
+  --apb-ruler-fg: #b4bac4;
+  --apb-ruler-tick: #5f6671;
+  --apb-ruler-border: #33373e;
+  --apb-ruler-accent: var(--apb-accent, #60a5fa);
+  --apb-ruler-sel: rgba(96, 165, 250, 0.20);
+  --apb-grid-color: rgba(100, 116, 139, 0.30);
+  --apb-hidden-outline: #94a3b8;
+  --apb-edit-outline: var(--apb-accent, #60a5fa);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .apb-viewport {
+    --apb-canvas-bg: #17191d;
+    --apb-canvas-label: #b4bac4;
+    --apb-canvas-page-edge: rgba(255, 255, 255, 0.10);
+    --apb-canvas-page-shadow: rgba(0, 0, 0, 0.45);
+    --apb-canvas-focus: var(--apb-focus, #60a5fa);
+    --apb-ruler-bg: #202329;
+    --apb-ruler-fg: #b4bac4;
+    --apb-ruler-tick: #5f6671;
+    --apb-ruler-border: #33373e;
+    --apb-ruler-accent: var(--apb-accent, #60a5fa);
+    --apb-ruler-sel: rgba(96, 165, 250, 0.20);
+    --apb-grid-color: rgba(100, 116, 139, 0.30);
+    --apb-hidden-outline: #94a3b8;
+    --apb-edit-outline: var(--apb-accent, #60a5fa);
+  }
+}
+
+@media (forced-colors: active) {
+  .apb-viewport {
+    --apb-canvas-bg: Canvas;
+    --apb-canvas-label: CanvasText;
+    --apb-canvas-focus: Highlight;
+    --apb-ruler-bg: Canvas;
+    --apb-ruler-fg: CanvasText;
+    --apb-ruler-tick: GrayText;
+    --apb-ruler-border: CanvasText;
+    --apb-ruler-accent: Highlight;
+    --apb-ruler-sel: Canvas;
+    --apb-grid-color: GrayText;
+    --apb-hidden-outline: GrayText;
+    --apb-edit-outline: Highlight;
+  }
+}
+
+/* --------------------------------------------------------------- viewport */
+
+.apb-viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: var(--apb-canvas-bg);
+  contain: strict;
+  touch-action: none;
+  overscroll-behavior: none;
+  outline: none;
+  cursor: default;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.apb-viewport:focus-visible::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 2px var(--apb-canvas-focus);
+}
+
+.apb-viewport[data-tool="hand"],
+.apb-viewport.apb-space-pan {
+  cursor: grab;
+}
+
+.apb-viewport.apb-panning,
+.apb-viewport.apb-panning * {
+  cursor: grabbing !important;
+}
+
+.apb-viewport.apb-space-pan *,
+.apb-viewport[data-tool="hand"] * {
+  cursor: inherit !important;
+}
+
+.apb-viewport[data-tool="frame"],
+.apb-viewport[data-tool="section"],
+.apb-viewport[data-tool="rect"],
+.apb-viewport[data-tool="ellipse"],
+.apb-viewport[data-tool="line"],
+.apb-viewport[data-tool="image"] {
+  cursor: crosshair;
+}
+
+.apb-viewport[data-tool="text"] {
+  cursor: text;
+}
+
+.apb-canvas-hint {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ------------------------------------------------------------------ world */
+
+.apb-world {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+}
+
+.apb-artboard-label {
+  --apb-zoom: 1;
+  position: absolute;
+  left: 0;
+  bottom: 100%;
+  max-width: none;
+  padding: 0 0 6px;
+  transform-origin: 0 100%;
+  transform: scale(calc(1 / var(--apb-zoom)));
+  font: 500 12px/1.3 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--apb-canvas-label);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.apb-grid {
+  --apb-grid-size: 8px;
+  --apb-grid-line: 1px;
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: none;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, var(--apb-grid-color) var(--apb-grid-line), transparent var(--apb-grid-line)),
+    linear-gradient(to bottom, var(--apb-grid-color) var(--apb-grid-line), transparent var(--apb-grid-line));
+  background-size: var(--apb-grid-size) var(--apb-grid-size);
+}
+
+.apb-grid.apb-on {
+  display: block;
+}
+
+.apb-overlay {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 2;
+  overflow: visible;
+  pointer-events: none;
+}
+
+/* ----------------------------------------------------------------- rulers */
+
+.apb-rulers {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.apb-viewport.apb-rulers-off .apb-rulers {
+  display: none;
+}
+
+.apb-ruler,
+.apb-ruler-corner {
+  position: absolute;
+  display: block;
+  pointer-events: auto;
+}
+
+.apb-ruler-top {
+  left: 20px;
+  top: 0;
+  height: 20px;
+}
+
+.apb-ruler-left {
+  left: 0;
+  top: 20px;
+  width: 20px;
+}
+
+/* The corner also carries the resolved ruler colours read by viewport.js. */
+.apb-ruler-corner {
+  left: 0;
+  top: 0;
+  width: 20px;
+  height: 20px;
+  box-sizing: border-box;
+  background-color: var(--apb-ruler-bg);
+  color: var(--apb-ruler-fg);
+  border: 0 solid var(--apb-ruler-border);
+  border-right-width: 1px;
+  border-bottom-width: 1px;
+  outline: 0 solid var(--apb-ruler-accent);
+  text-decoration-color: var(--apb-ruler-tick);
+  column-rule-color: var(--apb-ruler-sel);
+}
+
+/* ------------------------------------------------------ artboard (content) */
+
+.apb-artboard {
+  position: relative;
+  display: block;
+  margin: 0;
+  padding: 0;
+  box-shadow: 0 0 0 1px var(--apb-canvas-page-edge), 0 4px 24px var(--apb-canvas-page-shadow);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.5;
+  color: #111827;
+  text-align: left;
+  letter-spacing: normal;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+:where(.apb-artboard),
+:where(.apb-artboard) :where(*),
+:where(.apb-artboard) :where(*)::before,
+:where(.apb-artboard) :where(*)::after {
+  box-sizing: border-box;
+}
+
+.apb-artboard * {
+  pointer-events: none;
+}
+
+.apb-artboard .apb-node {
+  pointer-events: auto;
+}
+
+.apb-artboard,
+.apb-artboard * {
+  cursor: inherit !important;
+}
+
+:where(.apb-artboard) :where(p, h1, h2, h3, h4, h5, h6, ul, ol, dl, dd, blockquote, figure, pre) {
+  margin: 0;
+}
+
+:where(.apb-artboard) :where(table) {
+  border-collapse: collapse;
+}
+
+:where(.apb-artboard) :where(th, td) {
+  padding: 8px;
+  border: 1px solid #cbd5e1;
+  text-align: left;
+  vertical-align: top;
+}
+
+:where(.apb-artboard) :where(img, video, canvas) {
+  display: block;
+}
+
+:where(.apb-artboard) :where(button, input, select, textarea) {
+  font: inherit;
+}
+
+/* Editor states */
+
+.apb-artboard .apb-hidden-preview {
+  opacity: 0.45 !important;
+  outline: 1px dashed var(--apb-hidden-outline) !important;
+  outline-offset: -1px;
+}
+
+.apb-artboard .apb-editing {
+  outline: 2px solid var(--apb-edit-outline) !important;
+  outline-offset: 2px;
+}
+
+.apb-artboard [contenteditable],
+.apb-artboard [contenteditable] * {
+  pointer-events: auto;
+  cursor: text !important;
+  -webkit-user-select: text;
+  user-select: text;
+  caret-color: currentColor;
+}
+
+.apb-artboard [contenteditable]:focus {
+  outline: none;
+}
+
+.apb-artboard .apb-textedit-host {
+  display: inline-block;
+  min-width: 1px;
+  white-space: pre-wrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .apb-viewport,
+  .apb-viewport * {
+    scroll-behavior: auto !important;
+  }
+}

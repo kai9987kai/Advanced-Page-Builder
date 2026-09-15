@@ -1,1 +1,411 @@
-/* stub — owned by B2 */
+/*
+ * tokens.css — UI design tokens + base reset for the editor shell (owned by B2).
+ *
+ * Themes: `:root` = light. `[data-theme="dark"]` = dark. `[data-theme="system"]` (and a root without a
+ * data-theme attribute) follows `prefers-color-scheme`. The shell sets `document.documentElement.dataset.theme`
+ * from `store.prefs.theme`. Every editor colour must come from a `--apb-*` token.
+ *
+ * Contrast (WCAG 2.x, computed with core/color.contrastRatio):
+ *   light  text      #17191d  bg 14.75 · surface 17.60 · surface-2 16.28 · surface-3 14.61 · accent-soft 15.09
+ *          muted     #4c535e  bg  6.50 · surface  7.76 · surface-2  7.18 · surface-3  6.44 · accent-soft  6.65
+ *          subtle    #5c636e  bg  5.08 · surface  6.06 · surface-2  5.60 · surface-3  5.03 · accent-soft  5.19
+ *          accent-text #1f5bd6 surface 5.96 · surface-3 4.95   danger #c42b2b surface 5.63 · surface-3 4.68
+ *          warning   #9a5700  surface 5.62 · surface-3 4.67    success #187236 surface 6.00 · surface-3 4.98
+ *          on accent #fff/#2160e0 5.51 (hover #1a4fbf 7.21) · on danger-fill 5.63 · tooltip 14.59
+ *          border-strong #7b818b (control boundaries) surface 3.92 · surface-2 3.63 · surface-3 3.26 · bg 3.29
+ *          focus #2160e0 bg 4.61 · surface 5.51 · surface-3 4.57   selection #1273eb surface 4.49 · bg 3.76
+ *          guide #e0169a surface 4.42 · bg 3.70
+ *   dark   text      #e9ebee  bg 15.95 · surface 14.74 · surface-2 13.36 · surface-3 11.41 · accent-soft 11.99
+ *          muted     #aab1bb  bg  8.81 · surface  8.14 · surface-2  7.38 · surface-3  6.31 · accent-soft  6.63
+ *          subtle    #949ba6  bg  6.80 · surface  6.28 · surface-2  5.70 · surface-3  4.87 · accent-soft  5.11
+ *          accent-text #7fabff surface 7.69 · surface-3 5.95   danger #ff7b72 surface 6.98 · surface-3 5.41
+ *          warning   #e8a33d  surface 8.16 · surface-3 6.32    success #4fc27a surface 7.82 · surface-3 6.06
+ *          on accent #fff/#2f6fe4 4.65 (hover #2559c4 6.35) · on danger-fill #c2372f 5.41 · tooltip 14.74
+ *          border-strong #737b87 surface 4.12 · surface-2 3.73 · surface-3 3.19 · bg 4.46
+ *          focus #6ea0ff bg 7.38 · surface 6.82 · surface-3 5.28   selection #3b8bff surface 5.30 · bg 5.74
+ *          guide #ff4fc0 surface 5.98 · bg 6.47
+ *   `--apb-border` is a decorative separator colour (panel dividers) and is intentionally low contrast;
+ *   interactive control boundaries use `--apb-border-strong` (≥ 3:1).
+ */
+
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+
+  /* surfaces */
+  --apb-bg: #e9ebef;
+  --apb-surface: #ffffff;
+  --apb-surface-2: #f5f6f8;
+  --apb-surface-3: #e8eaee;
+  --apb-hover: #eceef1;
+  --apb-active: #dfe2e7;
+  --apb-border: #e1e4e8;
+  --apb-border-strong: #7b818b;
+  --apb-control-bg: #f5f6f8;
+  --apb-control-border: #7b818b;
+
+  /* text */
+  --apb-text: #17191d;
+  --apb-text-muted: #4c535e;
+  --apb-text-subtle: #5c636e;
+
+  /* accent & status */
+  --apb-accent: #2160e0;
+  --apb-accent-hover: #1a4fbf;
+  --apb-accent-contrast: #ffffff;
+  --apb-accent-text: #1f5bd6;
+  --apb-accent-soft: #e6eefc;
+  --apb-danger: #c42b2b;
+  --apb-danger-fill: #c42b2b;
+  --apb-danger-contrast: #ffffff;
+  --apb-danger-soft: #fdecec;
+  --apb-warning: #9a5700;
+  --apb-warning-soft: #fdf3e3;
+  --apb-success: #187236;
+  --apb-success-soft: #e7f5ec;
+  --apb-focus: #2160e0;
+
+  /* canvas */
+  --apb-selection: #1273eb;
+  --apb-selection-soft: rgba(18, 115, 235, 0.12);
+  --apb-guide: #e0169a;
+  --apb-canvas-bg: #e9ebef;
+
+  /* misc */
+  --apb-tooltip-bg: #1f2329;
+  --apb-tooltip-text: #f5f6f8;
+  --apb-scrim: rgba(15, 17, 21, 0.42);
+  --apb-checker-a: #ffffff;
+  --apb-checker-b: #d5d8de;
+  --apb-checker: repeating-conic-gradient(var(--apb-checker-b) 0 25%, var(--apb-checker-a) 0 50%) 0 0 / 8px 8px;
+  --apb-scrollbar: #c3c7ce;
+  --apb-scrollbar-hover: #9aa0a9;
+
+  --apb-shadow-1: 0 1px 2px rgba(16, 18, 23, 0.08);
+  --apb-shadow-2: 0 4px 12px rgba(16, 18, 23, 0.12), 0 1px 3px rgba(16, 18, 23, 0.08);
+  --apb-shadow-3: 0 18px 44px rgba(16, 18, 23, 0.2), 0 4px 12px rgba(16, 18, 23, 0.1);
+
+  /* shape & spacing */
+  --apb-radius-1: 4px;
+  --apb-radius-2: 6px;
+  --apb-radius-3: 10px;
+  --apb-radius-full: 999px;
+  --apb-space-1: 4px;
+  --apb-space-2: 8px;
+  --apb-space-3: 12px;
+  --apb-space-4: 16px;
+  --apb-space-5: 24px;
+  --apb-space-6: 32px;
+
+  /* typography */
+  --apb-font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans", Arial, sans-serif;
+  --apb-font-mono: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --apb-font-size-xs: 11px;
+  --apb-font-size-sm: 12px;
+  --apb-font-size-md: 13px;
+  --apb-font-size-lg: 15px;
+  --apb-font-size-xl: 18px;
+  --apb-line-height: 1.4;
+  --apb-weight-medium: 500;
+  --apb-weight-semibold: 600;
+
+  /* sizes */
+  --apb-control-h: 28px;
+  --apb-control-h-sm: 24px;
+  --apb-control-h-lg: 32px;
+  --apb-toolbar-h: 44px;
+  --apb-status-h: 26px;
+  --apb-panel-header-h: 36px;
+
+  /* motion */
+  --apb-duration-fast: 100ms;
+  --apb-duration: 160ms;
+  --apb-duration-slow: 240ms;
+  --apb-ease: cubic-bezier(0.2, 0, 0, 1);
+
+  /* stacking layers */
+  --apb-z-canvas: 0;
+  --apb-z-overlay: 10;
+  --apb-z-panel: 20;
+  --apb-z-toolbar: 30;
+  --apb-z-drawer: 40;
+  --apb-z-popover: 1000;
+  --apb-z-dialog: 1100;
+  --apb-z-toast: 1200;
+  --apb-z-tooltip: 1300;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --apb-bg: #0e1013;
+  --apb-surface: #17191d;
+  --apb-surface-2: #1f2227;
+  --apb-surface-3: #2a2e35;
+  --apb-hover: #252930;
+  --apb-active: #30353d;
+  --apb-border: #2c3037;
+  --apb-border-strong: #737b87;
+  --apb-control-bg: #1f2227;
+  --apb-control-border: #737b87;
+  --apb-text: #e9ebee;
+  --apb-text-muted: #aab1bb;
+  --apb-text-subtle: #949ba6;
+  --apb-accent: #2f6fe4;
+  --apb-accent-hover: #2559c4;
+  --apb-accent-contrast: #ffffff;
+  --apb-accent-text: #7fabff;
+  --apb-accent-soft: #1c2a45;
+  --apb-danger: #ff7b72;
+  --apb-danger-fill: #c2372f;
+  --apb-danger-contrast: #ffffff;
+  --apb-danger-soft: #3a1d1d;
+  --apb-warning: #e8a33d;
+  --apb-warning-soft: #3a2c14;
+  --apb-success: #4fc27a;
+  --apb-success-soft: #17321f;
+  --apb-focus: #6ea0ff;
+  --apb-selection: #3b8bff;
+  --apb-selection-soft: rgba(59, 139, 255, 0.16);
+  --apb-guide: #ff4fc0;
+  --apb-canvas-bg: #0e1013;
+  --apb-tooltip-bg: #e9ebee;
+  --apb-tooltip-text: #17191d;
+  --apb-scrim: rgba(0, 0, 0, 0.6);
+  --apb-checker-a: #3a3e45;
+  --apb-checker-b: #2a2d33;
+  --apb-scrollbar: #3d424a;
+  --apb-scrollbar-hover: #5a616b;
+  --apb-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --apb-shadow-2: 0 4px 14px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.4);
+  --apb-shadow-3: 0 18px 48px rgba(0, 0, 0, 0.6), 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="dark"]),
+  [data-theme="system"] {
+    color-scheme: dark;
+    --apb-bg: #0e1013;
+    --apb-surface: #17191d;
+    --apb-surface-2: #1f2227;
+    --apb-surface-3: #2a2e35;
+    --apb-hover: #252930;
+    --apb-active: #30353d;
+    --apb-border: #2c3037;
+    --apb-border-strong: #737b87;
+    --apb-control-bg: #1f2227;
+    --apb-control-border: #737b87;
+    --apb-text: #e9ebee;
+    --apb-text-muted: #aab1bb;
+    --apb-text-subtle: #949ba6;
+    --apb-accent: #2f6fe4;
+    --apb-accent-hover: #2559c4;
+    --apb-accent-contrast: #ffffff;
+    --apb-accent-text: #7fabff;
+    --apb-accent-soft: #1c2a45;
+    --apb-danger: #ff7b72;
+    --apb-danger-fill: #c2372f;
+    --apb-danger-contrast: #ffffff;
+    --apb-danger-soft: #3a1d1d;
+    --apb-warning: #e8a33d;
+    --apb-warning-soft: #3a2c14;
+    --apb-success: #4fc27a;
+    --apb-success-soft: #17321f;
+    --apb-focus: #6ea0ff;
+    --apb-selection: #3b8bff;
+    --apb-selection-soft: rgba(59, 139, 255, 0.16);
+    --apb-guide: #ff4fc0;
+    --apb-canvas-bg: #0e1013;
+    --apb-tooltip-bg: #e9ebee;
+    --apb-tooltip-text: #17191d;
+    --apb-scrim: rgba(0, 0, 0, 0.6);
+    --apb-checker-a: #3a3e45;
+    --apb-checker-b: #2a2d33;
+    --apb-scrollbar: #3d424a;
+    --apb-scrollbar-hover: #5a616b;
+    --apb-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --apb-shadow-2: 0 4px 14px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.4);
+    --apb-shadow-3: 0 18px 48px rgba(0, 0, 0, 0.6), 0 4px 14px rgba(0, 0, 0, 0.4);
+  }
+}
+
+/* Windows High Contrast / forced colours: map tokens onto system colours so borders and focus stay visible. */
+@media (forced-colors: active) {
+  :root,
+  [data-theme] {
+    --apb-bg: Canvas;
+    --apb-surface: Canvas;
+    --apb-surface-2: Canvas;
+    --apb-surface-3: Canvas;
+    --apb-hover: Canvas;
+    --apb-active: Canvas;
+    --apb-border: CanvasText;
+    --apb-border-strong: CanvasText;
+    --apb-control-bg: Field;
+    --apb-control-border: FieldText;
+    --apb-text: CanvasText;
+    --apb-text-muted: CanvasText;
+    --apb-text-subtle: GrayText;
+    --apb-accent: Highlight;
+    --apb-accent-hover: Highlight;
+    --apb-accent-contrast: HighlightText;
+    --apb-accent-text: LinkText;
+    --apb-accent-soft: Canvas;
+    --apb-danger: CanvasText;
+    --apb-danger-fill: ButtonText;
+    --apb-danger-contrast: ButtonFace;
+    --apb-warning: CanvasText;
+    --apb-success: CanvasText;
+    --apb-focus: Highlight;
+    --apb-selection: Highlight;
+    --apb-guide: Highlight;
+    --apb-tooltip-bg: Canvas;
+    --apb-tooltip-text: CanvasText;
+    --apb-shadow-1: none;
+    --apb-shadow-2: none;
+    --apb-shadow-3: none;
+  }
+}
+
+/* ------------------------------------------------------------------ base reset (editor UI only) */
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+  background: var(--apb-bg);
+  color: var(--apb-text);
+  font-family: var(--apb-font);
+  font-size: var(--apb-font-size-md);
+  line-height: var(--apb-line-height);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+:where(.apb-app, .apb-ui, .apb-popover, .apb-tooltip, .apb-dialog),
+:where(.apb-app, .apb-ui, .apb-popover, .apb-tooltip, .apb-dialog) *,
+:where(.apb-app, .apb-ui, .apb-popover, .apb-tooltip, .apb-dialog) *::before,
+:where(.apb-app, .apb-ui, .apb-popover, .apb-tooltip, .apb-dialog) *::after {
+  box-sizing: border-box;
+}
+
+/* Designed document content keeps browser defaults so the editor matches the export. */
+:where(.apb-artboard),
+:where(.apb-artboard) *,
+:where(.apb-artboard) *::before,
+:where(.apb-artboard) *::after {
+  box-sizing: revert;
+}
+
+.apb-app {
+  height: 100%;
+  font-family: var(--apb-font);
+  font-size: var(--apb-font-size-md);
+  color: var(--apb-text);
+}
+
+:where(.apb-app, .apb-ui, .apb-popover, .apb-dialog) :where(button, input, select, textarea) {
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+}
+
+:where(.apb-app, .apb-ui, .apb-popover, .apb-dialog) :where(h1, h2, h3, h4, h5, h6, p) {
+  margin: 0;
+}
+
+:where(.apb-app, .apb-ui, .apb-popover, .apb-dialog) :where(svg) {
+  flex-shrink: 0;
+}
+
+:where(.apb-app, .apb-ui, .apb-popover, .apb-dialog, .apb-tooltip) ::selection {
+  background: var(--apb-accent-soft);
+  color: var(--apb-text);
+}
+
+/* Visible keyboard focus everywhere in the UI. */
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--apb-focus);
+  outline-offset: 2px;
+}
+
+:where(input, select, textarea):focus-visible {
+  outline-offset: 0;
+}
+
+/* Screen-reader-only helper (the #apb-live region uses it). */
+.apb-sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: -1px !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  clip-path: inset(50%) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+[hidden]:not([hidden="until-found"]) {
+  display: none !important;
+}
+
+/* Subtle scrollbars inside the UI. */
+:where(.apb-app, .apb-ui, .apb-popover, .apb-dialog) * {
+  scrollbar-width: thin;
+  scrollbar-color: var(--apb-scrollbar) transparent;
+}
+
+:where(.apb-app, .apb-ui, .apb-popover, .apb-dialog) *::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+:where(.apb-app, .apb-ui, .apb-popover, .apb-dialog) *::-webkit-scrollbar-thumb {
+  background: var(--apb-scrollbar);
+  border: 3px solid transparent;
+  border-radius: var(--apb-radius-full);
+  background-clip: padding-box;
+}
+
+:where(.apb-app, .apb-ui, .apb-popover, .apb-dialog) *::-webkit-scrollbar-thumb:hover {
+  background-color: var(--apb-scrollbar-hover);
+}
+
+:where(.apb-app, .apb-ui, .apb-popover, .apb-dialog) *::-webkit-scrollbar-track,
+:where(.apb-app, .apb-ui, .apb-popover, .apb-dialog) *::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Reduced motion: no transitions or animations in the UI. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --apb-duration-fast: 0ms;
+    --apb-duration: 0ms;
+    --apb-duration-slow: 0ms;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media (forced-colors: active) {
+  :focus-visible {
+    outline: 2px solid Highlight;
+  }
+}
