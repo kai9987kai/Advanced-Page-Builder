@@ -484,3 +484,130 @@ sandboxed `iframe` embeds with `title`, no editor artefacts.
 ## Contract additions
 
 _(Implementers: append dated entries here when you extend a contract.)_
+
+### 2026-09-15 — A2 `snapping` (§6.10)
+- Guide geometry: `axis:'x'` = vertical line at x=`pos` spanning y∈[`from`,`to`]; `axis:'y'` = horizontal line. Guides at the same
+  position/kind are merged and span the moving rect plus every matched rect (parent guides span the parent).
+- Spacing entries: `{ axis, a, b, gap, from, to, pos }` — `a`/`b` are the rects bounding the gap (a before b along `axis`),
+  `from`/`to` the gap interval along `axis`, `pos` the cross-axis coordinate for the label.
+- Extra options: `objects` (default true; false = grid only, maps to `prefs.snap.objects`), `gridOrigin: {x,y}` (default 0,0),
+  `snapResize` also accepts `keepAspect`, `fromCenter`, `minW`, `minH`. Results include `snapped: { x: kind|null, y: kind|null }`.
+- `snapping.createIndex({ others, parent })` → pass as `index` (instead of `others`/`parent`) to reuse sorted candidates across drag frames.
+- `snapping.snapPoint({ point, others, parent, grid, gridSize, threshold })` → `{ x, y, guides }` for drawing tools.
+- Tie-break when candidates are equally close: sibling edge/center > parent > equal spacing > grid.
+
+### 2026-09-15 — A2 `docops` (§6.11)
+- Breakpoint default: geometric/visibility writes (`move setBox update align distribute tidy radial matchSize setHidden fitGroup`)
+  target `opts.bp` when given, else `store.view.bp` (base bp → base values). Structural ops (`insert remove duplicate reparent group
+  ungroup wrap createComponent instantiate detach`) use base values.
+- Positional ops skip locked nodes (a node is locked when it or any ancestor has `locked`) and children of stack parents (x/y ignored).
+  `update` is not blocked by locks (inspector edits). Moving/resizing children of a `group` refits the group in the same transaction;
+  resizing a group scales its children. Removing/reparenting the last child of a group removes the empty group.
+- `move(…, dx, dy)` deltas are world (page) px; they are converted into each parent's local frame (rotated parents supported).
+- `insert` extra opts: `anchor: 'topleft'|'center'` for `at` (at = union bounds of the top-level specs in parent coordinates).
+  Default parent: sections → current page root; others → `view.context`, else the page's first section, else the page root.
+- `update` accepts dotted keys (`'style.fill'`, `'props.text'`, deeper paths merge into the current value); `id parent children type` are ignored.
+- `ungroup(store, id | ids)` works on any container except `page`/`section`. `wrap` default layout is `'free'`; `layout` may be
+  `'free'|'stack'|{ mode, dir, gap, … }` (stack: direction/gap detected when omitted, `sizing: hug`). Wrapper frames/groups get `style: {}`.
+- `align(…, { to })` defaults to `'parent'` for a single node, `'selection'` otherwise (locked nodes still count for the bounds).
+  `distribute` needs ≥ 3 movable nodes. `tidy(…, { gap = 16, gapX, gapY, columns })`. `matchSize` `w/h: true` = largest selected.
+- `radial(…, { radius = max(bounds.w,bounds.h)/2, startAngle = -90, sweep = 360, cx, cy, rotateItems })`: angles clockwise from +x;
+  items in the order given; `cx/cy` in the first item's parent coordinates (default selection center); `rotateItems: true|'tangent'`
+  → rotation = angle + 90, `'radial'` → rotation = angle. Full circle spacing = sweep/n, partial = sweep/(n−1).
+- `makeResponsive(store, pageId, bpId, { pad, gap })` → number of nodes overridden; no-op (0) for the base breakpoint.
+  pad = 16 (width < 600 or id `mobile`) else 24; gap 16; fontSize ≥ 40 × 0.7 (mobile) / × 0.85; free containers that shrink are
+  scaled uniformly (descendant fonts not below 12px); text-like nodes grow in height; rotated children reset to 0; stack children wider
+  than the available width get `w` clamped; row stacks → column on mobile.
+- Components: `createComponent(store, ids, { name })` — a single container selection becomes the master root itself (box keys move to
+  the instance), otherwise a free `frame` master root wraps the copies. `instantiate(store, id, { parent, at, index, select })` centers in a
+  free parent when `at` is omitted. `detach` merges `overrides[masterId]` (`style props layout sizing attrs`, plus `hidden`/`name`) into the
+  re-id'd copies and applies the instance's box/style/attrs/motion/bp to the new root; returns `[newRootId]`.
+- Helpers: `docops.worldBox(doc, id, { bp })` → `{ cx, cy, w, h, rotation }`, `docops.worldBounds(doc, id, { bp })` → AABB,
+  `docops.toLocal(doc, parentId, worldBox)` → `{ x, y, w, h, rotation }`, `docops.topLevel(doc, ids)`, `docops.sortDocOrder(doc, ids)`,
+  `docops.isLocked(doc, id)`. Stack children are placed by an approximate flow layout (pad/gap/align/justify/fill) unless the first
+  argument is an `app` whose `canvas.renderer.worldRect(id)` is available and the document is unchanged.
+
+### 2026-09-15 — A2 `elements` / `element-types` (§5.4)
+- Registry API: `register(def) → frozen normalized def` (throws `TypeError` on invalid defs; an existing type throws unless
+  `def.replace === true`), `unregister(type)`, `get(type) → def|null`, `has(type)`, `list({ category, insertable })`, `types()`,
+  `canContain(parentType, childType)` (container + `accepts`; `page` never nests), `styleOmit(typeOrDef, eff) → string[]`,
+  constants `CATEGORIES`, `DEFAULT_CAPS`, `FIELD_TYPES`.
+- Normalized def fields: `type label icon(=type) category(='basic') container accepts(fn|null) caps bpProps(frozen []) textEdit(null)
+  defaults vnode inspector audit(fn|null) insertable(=true)`; unknown extra fields are preserved (e.g. `core: true` on core types).
+- `DEFAULT_CAPS = { fill, border, radius, shadow: true, text: false, padding: false, effects: true, stroke: false, image: false,
+  layout: <container> }`; `def.caps` merges over it.
+- Optional `styleOmit: string[] | (eff) => string[]` — STYLE_KEYS the style module must not emit for that node (e.g. SVG shapes paint
+  `fill` themselves; groups/spacers/instances have no visual caps).
+- Optional `insertable: false` hides a type from insert UIs (`page`, `group`, `instance`).
+- Inspector field specs: `{ key, label, type, options?: [{value,label}] | 'components', min, max, step, placeholder, accept, language,
+  when?: (node) => boolean }`.
+- The core types (`element-types`) are loaded lazily by the registry on the first `get/has/list/types` call, so
+  `schema.createNode()` always sees them (no explicit `APB.require('element-types')` needed).
+- VNode functions receive the *effective* node as `node` (same object as `ctx.effective`); ctx additionally carries `node` (raw
+  node), `breakpoint` (bp object), `cssValue(v)` (token-resolved sanitized CSS value), `virtual` (inside an instance expansion),
+  `withIds`, `includeHidden`, `classFor`. In `editor` mode link types emit `data-href` instead of `href`; buttons get `tabindex=-1`.
+- `VNode.style` returned by types = type-intrinsic CSS only (resets such as `margin:0`, button centering, SVG `fill`/`stroke`); the
+  renderer/exporter merges it into the node's declarations (see `style.nodeDecls({ extra })`); exporters put it into the class rule.
+- `image` without a source renders `element-types.PLACEHOLDER_IMAGE` (inline SVG data URI) with `data-placeholder=""`. Its `audit`
+  returns `[{ rule: 'img-alt', severity: 'error', message }]` for non-decorative images without alt.
+- `text.props` also has `href`, `target` (a link wraps the content in an inner `<a>`); `frame.props.target`; `table.props.caption`.
+  bpProps: text `['text','html']`, button `['text']`, list `['items']`, table `['rows','caption']`.
+- `element-types` exports `{ TYPES, PLACEHOLDER_IMAGE, TEXT_TAGS, SECTION_TAGS, FRAME_TAGS, SHAPES, shapePoints(shape, props) }`.
+
+### 2026-09-15 — A2 `style` (§6.9)
+- Declaration order is deterministic: box → layout → type extras → visual (fixed STYLE_KEYS order) → `node.css` (via `sanitize.css`)
+  → `display:none` when hidden (always last, wins over everything).
+- `nodeDecls(doc, node, bpId, { mode, parentEff, bp, extra, assetURL, effective, box = true })`: `parentEff` defaults to the effective
+  parent (`null` = root); `bp` = breakpoint object (defaults from `bpId`); `extra` = VNode.style (camelCase or kebab keys);
+  `effective: true` skips the cascade; `box: false` omits position/size.
+- Background uses longhands only (`background-color` for colors, `background-image` for gradients and `fillImage`, layered as
+  `url("…"), <gradient>` when both), so breakpoint diffs never reset each other. `fillImage.asset` resolves through
+  `opts.assetURL(id)` or `doc.assets[id].src`; every URL passes `sanitize.url(…, 'image')`.
+- Tokens: `$id` is replaced anywhere inside color/gradient/shadow strings. Keyword properties use allowlists; free-form values pass
+  `style.safeValue` (fast allowlist, else `sanitize.css`). `style.padding` and `valign` apply to leaf nodes only; containers pad
+  through `layout.pad` (stack layouts only). Opacity is emitted only when < 1; `backdropBlur` also emits the `-webkit-` prefix.
+  `stroke`/`strokeWidth` are painted by the `shape` vnode, not by style. Own style keys win over the `textStyle` token, so applying
+  a text style should remove overlapping own keys (e.g. the text default `fontSize: 18`).
+- Stack children: `hug` on the cross axis of a parent with `align:'stretch'` → `width|height: fit-content` (auto would stretch).
+- `hoverDecls(eff, doc)` also accepts `states.hover.style.transform` (sanitized), prefixed with the node rotation when rotated.
+- `tokensCSS(doc)` returns `''` when there are no (valid) color tokens.
+- `diffDecls(base, next)` emits removed properties first (`display → revert`, inherited properties → `unset`, others → `initial`),
+  then changed/added ones in `next` order.
+- Extra helpers: `declsToObject(map, { camel = true })`, `parseDecls(cssText) → Map`, `extraDecls(obj) → Map`, `cssValue(v)`,
+  `safeValue(v)`, `resolveTokens(v)`, `px(n)` (0 → `'0'`), `fmt(n)`, `boxValue(v)`, `resolvedStyle(eff, doc)`,
+  `breakpoint(doc, bpId) → bp object`, `resetValue(prop)`.
+- Exporter `freeform: 'scale'` helpers: `designUnitVars(designWidth, { name = '--u' })` → Map `container-type: inline-size;
+  --u: min(1px, calc(100cqw / W))` for the scaling container (unregistered custom properties resolve `cqw` at the use site, i.e.
+  against that container); `designUnitDecls(decls, { designWidth, unit = 'var(--u)', centerLeft })` → new Map where px lengths of
+  `left top right bottom width height min-/max-width/height font-size letter-spacing gap padding border-width border-radius
+  flex-basis` become `calc(N * var(--u))`; with `centerLeft` a px `left` becomes `calc(max(0px, (100cqw - Wpx) / 2) + N * var(--u))`.
+
+### 2026-09-15 — A2 `vdom` (§6.9.1)
+- `buildTree(doc, rootId, opts)` options: `bp` (id, default base), `mode` (`'export'` default | `'editor'`), `classFor(effNode)`,
+  `withIds` (default: editor), `includeHidden` (hidden nodes rendered with `display:none`), `inlineStyles` (default: editor, or
+  export without `classFor`), `sanitizeHTML`, `assetURL` (default: `doc.assets[id].src` sanitized), `resolveURL` (default
+  `sanitize.url`), `icon`, `parentEff` (default: effective parent of the root; pass `null` to render a subtree as a standalone
+  root), and `onNode({ id, node /* effective */, parentEff, vnode, decls, virtual, bp })`, called for every emitted node (children
+  before parents) — exporters collect class CSS from `decls` (this includes the virtual nodes of instance expansions).
+- Editor mode adds class `apb-node`; both modes map `attrs.htmlId → id` (`sanitize.id`), `className` (`sanitize.className`),
+  `ariaLabel`, `role`, `title`. Inline styles are camelCase objects (custom properties keep their names).
+- The element that receives node children keeps `slot: true` in the output (toHTML pretty-prints slot children one per line;
+  inline content such as `p > a` is never re-indented).
+- Instance expansion: the expanded root takes the **instance id** (and the instance's `name x y w h rotation hidden locked sizing
+  parent`, merged `style`/`attrs`, `motion`, `states`, appended `css`) plus the master root's type/layout/visuals and
+  `instance: { id, component, master }`; inner nodes get `${instanceId}:${masterId}` (nested: `outer:inner:master`).
+  Overrides `{ [masterId]: { props, style, sizing, attrs, layout, hidden, name } }` apply after the breakpoint cascade of the
+  master node. Missing or cyclic components render `<div data-component-missing="">`.
+- `vdom.instanceVNode(doc, instanceNode, ctx)` → expansion whose root is undecorated and carries only its non-box declarations in
+  `style` (used by `instance.vnode`, so the renderer can treat instances like any other type), or `null`.
+- `vdom.expandInstance(doc, instance|id, { bp }) → { root, component, nodes: { [id]: effectiveNode } } | null` (one level; nested
+  instances stay `instance` nodes).
+- `toHTML(vnode | vnode[], { indent, pretty })` safety net: invalid or dangerous tags (`script style base meta link noscript template
+  object embed applet frame frameset foreignObject use animate set …`) render as `div` (`g` inside svg); `on*`, `srcdoc` and `is`
+  attributes are dropped; URL attributes with `javascript:`/`vbscript:` or non-image `data:` are dropped (`data:image/svg+xml` only
+  on `img[src]`); `attrs.style` strings pass `sanitize.css`; `style` object values pass `style.safeValue`; `true` → boolean
+  attribute, `false/null/undefined` → omitted, arrays are joined with spaces. `html` is inserted as-is (types must sanitize).
+- `toDOM(vnode, { onElement, document, svg })` / `patch(el, vnode, { onElement, keepAttrs })` return `null` without a DOM; they
+  always re-sanitize `vnode.html` with `sanitize.html(html, vnode.htmlProfile || 'html')`, apply styles via `style.cssText`, create
+  SVG elements in the SVG namespace, and `patch` reuses children keyed by `data-node-id` (unkeyed children by position).
+- Also exported: `collectAttrs(vnode, tag)`, `styleString(style)`, `tagName(tag, inSvg)`, `VOID`.

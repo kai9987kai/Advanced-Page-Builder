@@ -6,7 +6,7 @@
 <meta name="color-scheme" content="light dark">
 <meta name="description" content="Advanced Page Builder — a zero-dependency visual web page builder that runs entirely in your browser.">
 <meta name="generator" content="Advanced Page Builder 2.0.0">
-<!-- Advanced Page Builder v2.0.0 · built 2026-09-15T06:57:46.662Z · single-file build of src/index.html -->
+<!-- Advanced Page Builder v2.0.0 · built 2026-09-15T11:31:50.762Z · single-file build of src/index.html -->
 <title>Advanced Page Builder</title>
 
 <style data-src="css/tokens.css">
@@ -1530,6 +1530,20 @@ APB.define('sanitize', ['util'], function (util) {
     embed: ['https']
   };
 
+  /** Decode numeric character references and the entities that can hide a scheme separator. */
+  function decodeCharRefs(s) {
+    return s
+      .replace(/&#x([0-9a-f]{1,6});?/gi, (_, h) => safeCodePoint(parseInt(h, 16)))
+      .replace(/&#(\d{1,7});?/g, (_, d) => safeCodePoint(parseInt(d, 10)))
+      .replace(/&colon;/gi, ':')
+      .replace(/&(tab|newline);/gi, '')
+      .replace(/[\t\n\r]/g, '');
+  }
+
+  function safeCodePoint(cp) {
+    return cp > 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : '�';
+  }
+
   function httpURL(s) {
     let u;
     try { u = new URL(s); } catch (_) { return null; }
@@ -1623,8 +1637,9 @@ APB.define('sanitize', ['util'], function (util) {
     if (!m) {
       // Relative reference. Refuse anything that could be re-interpreted as a scheme by a parser.
       if (s.includes('\\')) return '';
-      const beforePathEnd = s.split(/[/?#]/)[0];
-      if (beforePathEnd.includes(':')) return '';
+      if (s.split(/[/?#]/)[0].includes(':')) return '';
+      // Also refuse references that would gain a scheme if a consumer HTML-decoded them.
+      if (s.includes('&') && decodeCharRefs(s).split(/[/?#]/)[0].includes(':')) return '';
       if (kind !== 'link' && s[0] === '#') return '';
       return s.replace(/[\s"'<>`]/g, (c) => encodeURIComponent(c));
     }
@@ -1758,6 +1773,13 @@ APB.define('sanitize', ['util'], function (util) {
       return /[a-zA-Z0-9:(\-]/.test(ch) ? ch : m;
     });
     s = s.replace(/\\([a-zA-Z:(])/g, '$1');
+    const rewriteUrls = (text) => text.replace(URL_FN_RE, (_, dq, sq, bare) => {
+      const safe = url(dq !== undefined ? dq : sq !== undefined ? sq : bare, 'image');
+      return safe ? 'url("' + safe.replace(/["\\\n]/g, (c) => encodeURIComponent(c)) + '")' : 'none';
+    });
+    // URLs are checked before keyword stripping (so `url(javascript:…)` becomes `none`) and again
+    // afterwards, because removing a keyword can join the text around it into a new url( token.
+    s = rewriteUrls(s);
     let prev;
     do {
       prev = s;
@@ -1772,11 +1794,7 @@ APB.define('sanitize', ['util'], function (util) {
         .replace(/-moz-binding\s*:[^;}]*/gi, '')
         .replace(/behavior\s*:[^;}]*/gi, '');
     } while (s !== prev);
-    s = s.replace(URL_FN_RE, (_, dq, sq, bare) => {
-      const safe = url(dq !== undefined ? dq : sq !== undefined ? sq : bare, 'image');
-      return safe ? 'url("' + safe.replace(/["\\\n]/g, (c) => encodeURIComponent(c)) + '")' : 'none';
-    });
-    return s;
+    return rewriteUrls(s);
   }
 
   /* ======================================================== id / class */
@@ -1860,13 +1878,6 @@ APB.define('sanitize', ['util'], function (util) {
   const TARGETS = new Set(['_blank', '_self', '_parent', '_top']);
   const REL_TOKENS = new Set(['noopener', 'noreferrer', 'nofollow', 'ugc', 'sponsored', 'external', 'author', 'license', 'me', 'help', 'tag', 'prev', 'next']);
   const INT_ATTRS = new Set(['width', 'height', 'colspan', 'rowspan', 'start', 'rows', 'cols', 'size', 'minlength', 'maxlength']);
-
-  function allAttrNames(profile) {
-    const set = new Set(GLOBAL_ATTRS);
-    for (const tag of PROFILES[profile]) (ELEMENT_ATTRS[tag] || []).forEach((a) => set.add(a));
-    if (profile === 'html') set.add('style');
-    return Array.from(set);
-  }
 
   /*
    * DOM clobbering guard: ids/names that shadow window, document or form properties are dropped.
@@ -2027,23 +2038,29 @@ APB.define('sanitize', ['util'], function (util) {
     return typeof g.DOMParser === 'function';
   }
 
-  function nativeFirstPass(str, profile) {
+  /*
+   * Native Sanitizer API pass (defence in depth, never the only line of defence).
+   * The config is an explicit *removal* list rather than an element allowlist: with an allowlist
+   * the native API drops non-listed elements together with their text (e.g. <p> in the inline
+   * profile), while the walker below unwraps them and keeps the content. setHTML() additionally
+   * applies its built-in safe baseline (scripts, event handlers, javascript: URLs …).
+   */
+  const NATIVE_CONFIG = Object.freeze({
+    removeElements: Array.from(DROP_TAGS),
+    removeAttributes: ['srcdoc', 'formaction', 'action', 'is', 'ping', 'background', 'lowsrc', 'dynsrc', 'xmlns'],
+    comments: false
+  });
+
+  function nativeFirstPass(str) {
     try {
       const body = inertBody();
       const container = body.ownerDocument.createElement('div');
       body.appendChild(container);
       if (typeof container.setHTML !== 'function') return null;
-      container.setHTML(str, {
-        sanitizer: {
-          elements: Array.from(PROFILES[profile]),
-          attributes: allAttrNames(profile),
-          comments: false,
-          dataAttributes: profile === 'html'
-        }
-      });
+      container.setHTML(str, { sanitizer: NATIVE_CONFIG });
       return container;
     } catch (_) {
-      return null;
+      return null; // unsupported config/implementation → plain inert parse + walker
     }
   }
 
@@ -2057,7 +2074,7 @@ APB.define('sanitize', ['util'], function (util) {
     if (!PROFILES[profile]) profile = 'inline';
     if (!hasDOM()) return util.escapeHTML(input);
     try {
-      let root = nativeFirstPass(input, profile) || inertBody(input);
+      let root = nativeFirstPass(input) || inertBody(input);
       walk(root, profile, 0);
       let out = root.innerHTML;
       // Re-parse until the serialization is stable (defends against parser mutations / mXSS).
@@ -2915,20 +2932,23 @@ APB.define('store', ['util', 'events', 'schema'], function (util, events, schema
   }
 
   /**
-   * Remove same-path duplicates, keeping the LAST occurrence of each path in apply order (at its
-   * position). Forward ops are chronological → the latest value wins. Inverse ops are stored in
-   * apply order (newest change first) → the earliest original value wins ("keep earliest inverse").
-   * Any op between two same-path ops that touches a sub/super path is overwritten by, or already
-   * contains, the retained op, so the result is exact.
+   * Drop ops that a LATER op on the same path overwrites with a defined value (the retained op
+   * stays at its position). Forward ops are chronological → the latest value wins. Inverse ops are
+   * stored in apply order (newest change first) → the earliest original value wins ("keep earliest
+   * inverse"). Exactness: every op between the dropped and the retained op either touches a
+   * sub-path (overwritten by the retained op), a super-path (which already replaced the dropped
+   * op's effect) or an unrelated path. A later *delete* never drops earlier ops, because an earlier
+   * write may have created the parent objects that must survive the delete.
    */
   function compressOps(ops) {
     if (ops.length < 2) return ops;
-    const seen = new Set();
+    const overwritten = new Set();
     const out = [];
     for (let i = ops.length - 1; i >= 0; i--) {
-      if (seen.has(ops[i].path)) continue;
-      seen.add(ops[i].path);
-      out.push(ops[i]);
+      const op = ops[i];
+      if (overwritten.has(op.path)) continue;
+      if (op.value !== undefined) overwritten.add(op.path);
+      out.push(op);
     }
     return out.reverse();
   }
@@ -3006,6 +3026,7 @@ APB.define('store', ['util', 'events', 'schema'], function (util, events, schema
 
     function makeTx(ctx) {
       function set(path, value) {
+        if (ctx.closed) throw new Error('store: transaction "' + ctx.label + '" is already finished (transact fn must be synchronous)');
         let keys = pathString(path);
         let val = value;
         let state = ctx.state;
@@ -3096,6 +3117,7 @@ APB.define('store', ['util', 'events', 'schema'], function (util, events, schema
         return true;
       }
 
+      /** index = position in the target's children AFTER removing the node (omit to append). */
       function moveNode(id, parentId, index) {
         const node = requireNode(id);
         const parent = requireNode(parentId, 'parent');
@@ -3177,7 +3199,10 @@ APB.define('store', ['util', 'events', 'schema'], function (util, events, schema
         node: nodeOf,
         get doc() { return ctx.state; },
         get selection() { return ctx.selection; },
-        select(ids) { ctx.selection = normalizeIds(ids, ctx.state); }
+        select(ids) {
+          if (ctx.closed) throw new Error('store: transaction "' + ctx.label + '" is already finished');
+          ctx.selection = normalizeIds(ids, ctx.state);
+        }
       };
     }
 
@@ -3194,6 +3219,15 @@ APB.define('store', ['util', 'events', 'schema'], function (util, events, schema
       return out;
     }
 
+    /**
+     * transact(label, fn(tx), { coalesce, select, silent }) → fn's return value.
+     * - fn must be synchronous. If it throws, nothing is applied (no partial state) and the error
+     *   is rethrown. A transaction started inside another one joins it (one history entry); an
+     *   exception in the inner fn rolls back only the inner changes before rethrowing.
+     * - coalesce: consecutive transactions with the same key within COALESCE_MS merge into one entry.
+     * - select: ids to select after the transaction (recorded as the entry's selAfter).
+     * - silent: apply and emit 'change' but record no undo entry (for non-undoable bookkeeping).
+     */
     function transact(label, fn, txOpts) {
       if (typeof label === 'function') { txOpts = fn; fn = label; label = 'Edit'; }
       if (typeof fn !== 'function') throw new TypeError('store.transact: fn must be a function');
@@ -3222,7 +3256,10 @@ APB.define('store', ['util', 'events', 'schema'], function (util, events, schema
         }
       }
 
-      const ctx = { state: doc, ops: [], inverse: [], info: newInfo(), selection: selection, selBefore: selection, tx: null };
+      const ctx = {
+        label: String(label || 'Edit'), state: doc, ops: [], inverse: [], info: newInfo(),
+        selection: selection, selBefore: selection, tx: null, closed: false
+      };
       ctx.tx = makeTx(ctx);
       current = ctx;
       let result;
@@ -3230,9 +3267,14 @@ APB.define('store', ['util', 'events', 'schema'], function (util, events, schema
         result = fn(ctx.tx);
       } catch (err) {
         current = null;
+        ctx.closed = true;
         throw err;
       }
       current = null;
+      ctx.closed = true;
+      if (result && typeof result.then === 'function' && typeof console !== 'undefined') {
+        console.warn('[APB] store.transact("' + ctx.label + '"): fn returned a Promise; only synchronous changes are recorded');
+      }
 
       if (o.select) ctx.selection = normalizeIds(o.select, ctx.state);
       if (!ctx.ops.length) {
@@ -3357,10 +3399,14 @@ APB.define('store', ['util', 'events', 'schema'], function (util, events, schema
 
     function canUndo() { return index > 0; }
     function canRedo() { return index < entries.length; }
-    function undo() { return canUndo() ? step('undo', index - 1) : false; }
-    function redo() { return canRedo() ? step('redo', index + 1) : false; }
+    function assertNoTransaction(what) {
+      if (current) throw new Error('store: cannot ' + what + ' inside a transaction');
+    }
+    function undo() { assertNoTransaction('undo'); return canUndo() ? step('undo', index - 1) : false; }
+    function redo() { assertNoTransaction('redo'); return canRedo() ? step('redo', index + 1) : false; }
 
     function jump(target) {
+      assertNoTransaction('jump');
       const t = util.clamp(Math.round(Number(target) || 0), 0, entries.length);
       if (t === index) return false;
       return step(t < index ? 'undo' : 'redo', t);
@@ -3807,22 +3853,3669 @@ APB.define('commands', ['env', 'events'], function (env, events) {
 </script>
 <!-- core (A2) -->
 <script data-src="js/core/elements.js">
-/* stub — owned by A2 */
+/* @node-testable */
+/*
+ * elements — element type registry. See ARCHITECTURE.md §5.4.
+ *
+ * Definitions are validated and normalized on register(). The core types live in
+ * `element-types` (which depends on this module); they are loaded lazily the first time the
+ * registry is queried, so `schema.createNode()` picks up their defaults without anyone having to
+ * require `element-types` explicitly.
+ */
+APB.define('elements', ['util'], function (util) {
+  'use strict';
+
+  const CATEGORIES = Object.freeze(['basic', 'text', 'media', 'layout', 'form', 'advanced']);
+
+  /** Default capabilities; a definition's `caps` object is merged over these. */
+  const DEFAULT_CAPS = Object.freeze({
+    fill: true, border: true, radius: true, shadow: true, text: false, padding: false,
+    effects: true, stroke: false, image: false, layout: false
+  });
+
+  const FIELD_TYPES = Object.freeze(['text', 'textarea', 'number', 'url', 'select', 'toggle', 'color', 'asset', 'icon', 'list', 'table', 'code']);
+
+  const TYPE_RE = /^[a-z][a-z0-9-]{0,39}$/;
+
+  const defs = new Map(); // type -> normalized def (registration order preserved)
+  let coreState = 0;      // 0 = not loaded, 1 = loading, 2 = done
+
+  function ensureCore() {
+    if (coreState !== 0) return;
+    coreState = 1;
+    try {
+      if (typeof APB !== 'undefined' && APB.has('element-types')) APB.require('element-types');
+    } catch (err) {
+      // A circular require means element-types is being instantiated right now (it registers
+      // itself); anything else is a genuine failure worth reporting.
+      if (!/circular/i.test(String(err && err.message)) && typeof console !== 'undefined') {
+        console.error('[APB] failed to load core element types:', err);
+      }
+    }
+    coreState = 2;
+  }
+
+  function fail(def, msg) {
+    const name = def && typeof def.type === 'string' ? def.type : '?';
+    throw new TypeError('elements.register(' + name + '): ' + msg);
+  }
+
+  function normalizeInspector(def, list) {
+    if (list === undefined || list === null) return [];
+    if (!Array.isArray(list)) fail(def, 'inspector must be an array of sections');
+    return list.map((section, i) => {
+      if (!util.isPlainObject(section)) fail(def, 'inspector section #' + i + ' must be an object');
+      const fields = Array.isArray(section.fields) ? section.fields : [];
+      fields.forEach((f, j) => {
+        if (!util.isPlainObject(f) || typeof f.key !== 'string' || !f.key) fail(def, 'inspector field #' + j + ' of section #' + i + ' needs a key');
+        if (f.type !== undefined && !FIELD_TYPES.includes(f.type)) fail(def, 'inspector field "' + f.key + '" has unknown type "' + f.type + '"');
+      });
+      return Object.freeze(Object.assign({}, section, {
+        title: typeof section.title === 'string' ? section.title : '',
+        fields: Object.freeze(fields.map((f) => Object.freeze(Object.assign({ label: f.key, type: 'text' }, f))))
+      }));
+    });
+  }
+
+  /**
+   * register(def) → normalized (frozen) def. Throws TypeError on invalid definitions. Registering
+   * an existing type throws unless `def.replace === true`.
+   */
+  function register(def) {
+    if (!util.isPlainObject(def)) throw new TypeError('elements.register: definition must be an object');
+    if (typeof def.type !== 'string' || !TYPE_RE.test(def.type)) fail(def, 'type must match ' + TYPE_RE);
+    if (typeof def.label !== 'string' || !def.label.trim()) fail(def, 'label must be a non-empty string');
+    if (typeof def.vnode !== 'function') fail(def, 'vnode must be a function');
+    if (typeof def.defaults !== 'function') fail(def, 'defaults must be a function');
+    if (def.category !== undefined && !CATEGORIES.includes(def.category)) fail(def, 'category must be one of ' + CATEGORIES.join(', '));
+    if (def.accepts !== undefined && def.accepts !== null && typeof def.accepts !== 'function') fail(def, 'accepts must be a function or null');
+    if (def.audit !== undefined && def.audit !== null && typeof def.audit !== 'function') fail(def, 'audit must be a function');
+    if (def.styleOmit !== undefined && def.styleOmit !== null && typeof def.styleOmit !== 'function' && !Array.isArray(def.styleOmit)) fail(def, 'styleOmit must be a function or an array');
+    if (def.caps !== undefined && !util.isPlainObject(def.caps)) fail(def, 'caps must be an object');
+    if (def.bpProps !== undefined && (!Array.isArray(def.bpProps) || def.bpProps.some((k) => typeof k !== 'string'))) fail(def, 'bpProps must be an array of strings');
+    if (def.textEdit !== undefined && def.textEdit !== null && typeof def.textEdit !== 'string') fail(def, 'textEdit must be a props key or null');
+    if (defs.has(def.type) && def.replace !== true) throw new Error('elements.register: type "' + def.type + '" is already registered');
+
+    const container = !!def.container;
+    const normalized = Object.assign({}, def, {
+      type: def.type,
+      label: def.label.trim(),
+      icon: typeof def.icon === 'string' && def.icon ? def.icon : def.type,
+      category: def.category || 'basic',
+      container,
+      accepts: typeof def.accepts === 'function' ? def.accepts : null,
+      caps: Object.freeze(Object.assign({}, DEFAULT_CAPS, { layout: container }, def.caps || {})),
+      bpProps: Object.freeze((def.bpProps || []).slice()),
+      textEdit: typeof def.textEdit === 'string' && def.textEdit ? def.textEdit : null,
+      inspector: Object.freeze(normalizeInspector(def, def.inspector)),
+      audit: typeof def.audit === 'function' ? def.audit : null,
+      insertable: def.insertable !== false
+    });
+    delete normalized.replace;
+    const frozen = Object.freeze(normalized);
+    defs.set(def.type, frozen);
+    return frozen;
+  }
+
+  function unregister(type) {
+    return defs.delete(type);
+  }
+
+  function get(type) {
+    if (typeof type !== 'string') return null;
+    if (!defs.has(type)) ensureCore();
+    return defs.get(type) || null;
+  }
+
+  function has(type) {
+    return get(type) !== null;
+  }
+
+  /** list({ category, insertable }) → defs in registration order. */
+  function list(filter) {
+    ensureCore();
+    const f = filter || {};
+    let out = Array.from(defs.values());
+    if (f.category) out = out.filter((d) => d.category === f.category);
+    if (f.insertable !== undefined) out = out.filter((d) => d.insertable === !!f.insertable);
+    return out;
+  }
+
+  function types() {
+    ensureCore();
+    return Array.from(defs.keys());
+  }
+
+  /** canContain(parentType, childType) → boolean (container + accepts check). */
+  function canContain(parentType, childType) {
+    const parent = get(parentType);
+    if (!parent || !parent.container) return false;
+    if (childType === 'page') return false;
+    if (!parent.accepts) return true;
+    try { return !!parent.accepts(childType); } catch (_) { return false; }
+  }
+
+  /** styleOmit(def, effectiveNode) → string[] of STYLE_KEYS the style module must not emit. */
+  function styleOmit(typeOrDef, eff) {
+    const def = typeof typeOrDef === 'string' ? get(typeOrDef) : typeOrDef;
+    if (!def || !def.styleOmit) return [];
+    try {
+      const v = typeof def.styleOmit === 'function' ? def.styleOmit(eff) : def.styleOmit;
+      return Array.isArray(v) ? v : [];
+    } catch (_) { return []; }
+  }
+
+  return { register, unregister, get, has, list, types, canContain, styleOmit, CATEGORIES, DEFAULT_CAPS, FIELD_TYPES };
+});
 </script>
 <script data-src="js/core/element-types.js">
-/* stub — owned by A2 */
+/* @node-testable */
+/*
+ * element-types — the 14 core element types, registered into `elements`. See ARCHITECTURE.md §5.4.
+ *
+ * VNode functions receive the *effective* node (after the breakpoint cascade) and a ctx
+ * (`{ mode, doc, bp, effective, assetURL, resolveURL, sanitizeHTML, escape, icon, cssValue }`).
+ * They never position themselves; `VNode.style` only carries type-intrinsic CSS (resets, centering,
+ * shape painting) which the renderer/exporter merges with the node's resolved declarations.
+ */
+APB.define('element-types', ['elements', 'util', 'sanitize'], function (elements, util, sanitize) {
+  'use strict';
+
+  const TEXT_TAGS = ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'span', 'div', 'blockquote', 'label', 'li'];
+  const SECTION_TAGS = ['section', 'header', 'footer', 'nav', 'main', 'aside', 'article', 'div'];
+  const FRAME_TAGS = ['div', 'article', 'aside', 'header', 'footer', 'nav', 'figure', 'section'];
+  const SHAPES = ['rect', 'ellipse', 'line', 'triangle', 'star', 'arrow', 'polygon'];
+  const SVG_SHAPES = ['triangle', 'star', 'arrow', 'polygon'];
+  const LINE_STYLES = ['solid', 'dashed', 'dotted', 'double'];
+
+  const PLACEHOLDER_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 240">' +
+    '<rect width="320" height="240" fill="#e5e7eb"/><circle cx="104" cy="84" r="22" fill="#9ca3af"/>' +
+    '<path d="M32 204l76-76 52 52 44-44 84 68z" fill="#9ca3af"/></svg>';
+  /** Neutral placeholder for images without a source (img-loaded SVG cannot run scripts). */
+  const PLACEHOLDER_IMAGE = 'data:image/svg+xml,' + encodeURIComponent(PLACEHOLDER_SVG);
+
+  /* ------------------------------------------------------------ helpers */
+
+  const str = (v) => (v === null || v === undefined ? '' : String(v));
+  const opt = (value, label) => ({ value, label });
+
+  function lazyStyle() {
+    return typeof APB !== 'undefined' && APB.has('style') ? APB.require('style') : null;
+  }
+
+  function cssValueOf(ctx) {
+    if (ctx && typeof ctx.cssValue === 'function') return ctx.cssValue;
+    const style = lazyStyle();
+    return style ? style.cssValue : () => '';
+  }
+
+  function resolveURL(ctx, url, kind) {
+    const fn = ctx && typeof ctx.resolveURL === 'function' ? ctx.resolveURL : sanitize.url;
+    return typeof url === 'string' && url.trim() ? (fn(url.trim(), kind) || '') : '';
+  }
+
+  function sanitizeHTML(ctx, html, profile) {
+    const fn = ctx && typeof ctx.sanitizeHTML === 'function' ? ctx.sanitizeHTML : sanitize.html;
+    return fn(str(html), profile);
+  }
+
+  /** Link attributes; in the editor the URL is kept as data-href so links never navigate. */
+  function linkAttrs(p, ctx) {
+    const href = resolveURL(ctx, p.href, 'link');
+    if (!href) return null;
+    const attrs = {};
+    if (ctx && ctx.mode === 'editor') attrs['data-href'] = href;
+    else attrs.href = href;
+    if (p.target === '_blank') { attrs.target = '_blank'; attrs.rel = 'noopener noreferrer'; }
+    return attrs;
+  }
+
+  const notTypes = (...types) => (childType) => !types.includes(childType);
+
+  function fmtN(n) {
+    const r = Math.round(n * 100) / 100;
+    return String(Object.is(r, -0) ? 0 : r);
+  }
+
+  function regularPoints(count, rOuter, rInner) {
+    const total = rInner === undefined ? count : count * 2;
+    const pts = [];
+    for (let i = 0; i < total; i++) {
+      const r = rInner === undefined || i % 2 === 0 ? rOuter : rInner;
+      const a = -Math.PI / 2 + (i * 2 * Math.PI) / total;
+      pts.push(fmtN(50 + r * Math.cos(a)) + ',' + fmtN(50 + r * Math.sin(a)));
+    }
+    return pts.join(' ');
+  }
+
+  /** shapePoints('star', { points: 5 }) → SVG polygon points in a 0 0 100 100 viewBox. */
+  function shapePoints(shape, props) {
+    const p = props || {};
+    const count = (v, d) => util.clamp(Math.round(Number.isFinite(v) ? v : d), 3, 32);
+    switch (shape) {
+      case 'triangle': return '50,0 100,100 0,100';
+      case 'arrow': return '0,30 60,30 60,0 100,50 60,100 60,70 0,70';
+      case 'star': return regularPoints(count(p.points, 5), 50, 19.1);
+      case 'polygon': return regularPoints(count(p.sides, 6), 50);
+      default: return '0,0 100,0 100,100 0,100';
+    }
+  }
+
+  function firstColor(value) {
+    const m = /(#[0-9a-fA-F]{3,8}\b|(?:rgba?|hsla?|oklch|oklab|color)\([^()]*\)|var\(--t-[A-Za-z0-9_-]+\))/.exec(value);
+    return m ? m[1] : '';
+  }
+
+  /* -------------------------------------------------------- inspector */
+
+  const LINK_FIELDS = [
+    { key: 'props.href', label: 'Link', type: 'url', placeholder: 'https://' },
+    { key: 'props.target', label: 'Open in', type: 'select', options: [opt('', 'Same tab'), opt('_blank', 'New tab')] }
+  ];
+
+  /* ------------------------------------------------------------ types */
+
+  const defs = [];
+
+  defs.push({
+    type: 'page', label: 'Page', icon: 'page', category: 'layout', container: true, insertable: false,
+    accepts: notTypes('page'),
+    caps: { fill: true, border: false, radius: false, shadow: false, effects: false },
+    defaults: () => ({
+      name: 'Page', w: 1440, h: 900, sizing: { w: 'fixed', h: 'hug' },
+      layout: { mode: 'stack', dir: 'column', gap: 0, align: 'stretch' },
+      style: { fill: '#ffffff' }, props: { minHeight: 900 }
+    }),
+    vnode: () => ({ tag: 'div', attrs: {}, slot: true }),
+    inspector: [{ title: 'Page', fields: [{ key: 'props.minHeight', label: 'Min height', type: 'number', min: 0, step: 10 }] }]
+  });
+
+  defs.push({
+    type: 'section', label: 'Section', icon: 'section', category: 'layout', container: true,
+    accepts: notTypes('page'),
+    caps: { fill: true, border: true, radius: true, shadow: true, effects: true },
+    defaults: () => ({
+      name: 'Section', w: 1440, h: 640, sizing: { w: 'fill', h: 'fixed' },
+      layout: { mode: 'free' }, props: { tag: 'section' }
+    }),
+    vnode: (node) => {
+      const p = node.props || {};
+      return { tag: SECTION_TAGS.includes(p.tag) ? p.tag : 'section', attrs: {}, slot: true };
+    },
+    inspector: [{
+      title: 'Section', fields: [{
+        key: 'props.tag', label: 'HTML tag', type: 'select',
+        options: SECTION_TAGS.map((t) => opt(t, '<' + t + '>'))
+      }]
+    }]
+  });
+
+  defs.push({
+    type: 'frame', label: 'Frame', icon: 'frame', category: 'layout', container: true,
+    accepts: notTypes('page', 'section'),
+    caps: { fill: true, border: true, radius: true, shadow: true, effects: true },
+    defaults: () => ({
+      name: 'Frame', w: 320, h: 240, layout: { mode: 'free' }, props: { tag: 'div', href: '', target: '' }
+    }),
+    vnode: (node, ctx) => {
+      const p = node.props || {};
+      const link = linkAttrs(p, ctx);
+      if (link) return { tag: 'a', attrs: link, style: { display: 'block', color: 'inherit', textDecoration: 'none' }, slot: true };
+      return { tag: FRAME_TAGS.includes(p.tag) ? p.tag : 'div', attrs: {}, slot: true };
+    },
+    inspector: [{
+      title: 'Frame', fields: [
+        { key: 'props.tag', label: 'HTML tag', type: 'select', options: FRAME_TAGS.map((t) => opt(t, '<' + t + '>')) }
+      ].concat(LINK_FIELDS)
+    }]
+  });
+
+  defs.push({
+    type: 'group', label: 'Group', icon: 'group', category: 'layout', container: true, insertable: false,
+    accepts: notTypes('page', 'section'),
+    caps: { fill: false, border: false, radius: false, shadow: false, text: false, padding: false, effects: true },
+    styleOmit: ['fill', 'fillImage', 'borderWidth', 'borderStyle', 'borderColor', 'radius', 'shadow', 'padding'],
+    defaults: () => ({ name: 'Group', w: 100, h: 100, layout: { mode: 'free' } }),
+    vnode: () => ({ tag: 'div', attrs: {}, slot: true }),
+    inspector: []
+  });
+
+  defs.push({
+    type: 'text', label: 'Text', icon: 'text', category: 'text',
+    caps: { fill: true, border: true, radius: true, shadow: true, text: true, padding: true, effects: true },
+    bpProps: ['text', 'html'],
+    textEdit: 'text',
+    defaults: () => ({
+      name: 'Text', w: 320, h: 64,
+      style: { fontSize: 18, lineHeight: 1.5, color: '#111827' },
+      props: { text: 'Text', html: null, tag: 'p', href: '', target: '' }
+    }),
+    vnode: (node, ctx) => {
+      const p = node.props || {};
+      const tag = TEXT_TAGS.includes(p.tag) ? p.tag : 'p';
+      const content = {};
+      if (typeof p.html === 'string' && p.html) content.html = sanitizeHTML(ctx, p.html, tag === 'div' || tag === 'blockquote' ? 'rich' : 'inline');
+      else content.text = str(p.text);
+      const style = { margin: '0', overflowWrap: 'break-word' };
+      if (content.text !== undefined) style.whiteSpace = 'pre-wrap';
+      const link = linkAttrs(p, ctx);
+      if (link) return { tag, attrs: {}, style, children: [Object.assign({ tag: 'a', attrs: link }, content)] };
+      return Object.assign({ tag, attrs: {}, style }, content);
+    },
+    inspector: [{
+      title: 'Content', fields: [
+        { key: 'props.text', label: 'Text', type: 'textarea' },
+        { key: 'props.tag', label: 'HTML tag', type: 'select', options: TEXT_TAGS.map((t) => opt(t, '<' + t + '>')) }
+      ].concat(LINK_FIELDS)
+    }]
+  });
+
+  defs.push({
+    type: 'button', label: 'Button', icon: 'button', category: 'basic',
+    caps: { fill: true, border: true, radius: true, shadow: true, text: true, padding: true, effects: true },
+    bpProps: ['text'],
+    textEdit: 'text',
+    defaults: () => ({
+      name: 'Button', w: 160, h: 48,
+      style: { fill: '#2563eb', color: '#ffffff', radius: 10, padding: [12, 20, 12, 20], fontSize: 16, fontWeight: 600, lineHeight: 1.2, textAlign: 'center' },
+      props: { text: 'Get started', href: '', target: '', kind: 'button' }
+    }),
+    vnode: (node, ctx) => {
+      const p = node.props || {};
+      const style = {
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center', margin: '0', border: '0',
+        fontFamily: 'inherit', textDecoration: 'none', cursor: 'pointer'
+      };
+      const link = linkAttrs(p, ctx);
+      if (link) return { tag: 'a', attrs: link, style, text: str(p.text) };
+      const attrs = { type: ['button', 'submit', 'reset'].includes(p.kind) ? p.kind : 'button' };
+      if (ctx && ctx.mode === 'editor') attrs.tabindex = '-1';
+      return { tag: 'button', attrs, style, text: str(p.text) };
+    },
+    inspector: [{
+      title: 'Content', fields: [
+        { key: 'props.text', label: 'Label', type: 'text' }
+      ].concat(LINK_FIELDS, [
+        { key: 'props.kind', label: 'Button type', type: 'select', options: [opt('button', 'Button'), opt('submit', 'Submit'), opt('reset', 'Reset')] }
+      ])
+    }]
+  });
+
+  defs.push({
+    type: 'image', label: 'Image', icon: 'image', category: 'media',
+    caps: { fill: true, border: true, radius: true, shadow: true, effects: true, image: true },
+    defaults: () => ({
+      name: 'Image', w: 320, h: 240, style: { objectFit: 'cover' },
+      props: { src: '', asset: '', alt: '', decorative: false, loading: 'lazy', fetchpriority: '' }
+    }),
+    vnode: (node, ctx) => {
+      const p = node.props || {};
+      let src = '';
+      if (typeof p.asset === 'string' && p.asset && ctx && typeof ctx.assetURL === 'function') src = ctx.assetURL(p.asset) || '';
+      if (!src) src = resolveURL(ctx, p.src, 'image');
+      const attrs = { src: src || PLACEHOLDER_IMAGE, alt: p.decorative ? '' : str(p.alt) };
+      if (p.decorative) attrs.role = 'presentation';
+      const sizing = node.sizing || {};
+      if (sizing.w !== 'fill' && sizing.w !== 'hug' && Number.isFinite(node.w) && node.w > 0) attrs.width = String(Math.round(node.w));
+      if (sizing.h !== 'fill' && sizing.h !== 'hug' && Number.isFinite(node.h) && node.h > 0) attrs.height = String(Math.round(node.h));
+      if (ctx && ctx.mode === 'editor') {
+        attrs.draggable = 'false';
+      } else {
+        if (p.loading === 'lazy' || p.loading === 'eager') attrs.loading = p.loading;
+        if (['high', 'low', 'auto'].includes(p.fetchpriority)) attrs.fetchpriority = p.fetchpriority;
+        attrs.decoding = 'async';
+      }
+      if (!src) attrs['data-placeholder'] = '';
+      return { tag: 'img', attrs, style: { display: 'block' } };
+    },
+    audit: (node) => {
+      const p = node.props || {};
+      return !p.decorative && !str(p.alt).trim()
+        ? [{ rule: 'img-alt', severity: 'error', message: 'Image has no alternative text' }] : [];
+    },
+    inspector: [{
+      title: 'Image', fields: [
+        { key: 'props.asset', label: 'Image', type: 'asset', accept: 'image/*' },
+        { key: 'props.src', label: 'Image URL', type: 'url', placeholder: 'https://' },
+        { key: 'props.alt', label: 'Alt text', type: 'textarea' },
+        { key: 'props.decorative', label: 'Decorative (no alt)', type: 'toggle' },
+        { key: 'props.loading', label: 'Loading', type: 'select', options: [opt('lazy', 'Lazy'), opt('eager', 'Eager')] },
+        { key: 'props.fetchpriority', label: 'Priority', type: 'select', options: [opt('', 'Default'), opt('high', 'High'), opt('low', 'Low')] }
+      ]
+    }]
+  });
+
+  defs.push({
+    type: 'shape', label: 'Shape', icon: 'shape', category: 'basic',
+    caps: { fill: true, border: true, radius: true, shadow: true, effects: true, stroke: true },
+    styleOmit: (eff) => {
+      const shape = eff && eff.props ? eff.props.shape : 'rect';
+      if (SVG_SHAPES.includes(shape) || shape === 'line') return ['fill', 'fillImage', 'radius', 'borderWidth', 'borderStyle', 'borderColor', 'padding'];
+      if (shape === 'ellipse') return ['radius'];
+      return [];
+    },
+    defaults: () => ({
+      name: 'Shape', w: 160, h: 160, style: { fill: '#93c5fd' },
+      props: { shape: 'rect', sides: 6, points: 5 }
+    }),
+    vnode: (node, ctx) => {
+      const p = node.props || {};
+      const s = node.style || {};
+      const cssv = cssValueOf(ctx);
+      const shape = SHAPES.includes(p.shape) ? p.shape : 'rect';
+      const has = (k) => s[k] !== undefined && s[k] !== null && s[k] !== '';
+      const stroke = has('stroke') ? cssv(s.stroke) : '';
+      const sw = Number.isFinite(s.strokeWidth) ? Math.max(0, s.strokeWidth) : 0;
+      if (shape === 'rect' || shape === 'ellipse') {
+        const style = {};
+        if (shape === 'ellipse') style.borderRadius = '50%';
+        if (stroke && sw > 0) style.border = fmtN(sw) + 'px solid ' + stroke;
+        return { tag: 'div', attrs: { 'aria-hidden': 'true' }, style };
+      }
+      if (shape === 'line') {
+        const color = stroke || (has('fill') ? firstColor(cssv(s.fill)) || cssv(s.fill) : '') || 'currentColor';
+        const lineStyle = LINE_STYLES.includes(s.borderStyle) ? s.borderStyle : 'solid';
+        return { tag: 'div', attrs: { 'aria-hidden': 'true' }, style: { borderTop: fmtN(sw > 0 ? sw : 2) + 'px ' + lineStyle + ' ' + color } };
+      }
+      let fill = has('fill') ? cssv(s.fill) : '';
+      if (/gradient\(/i.test(fill)) fill = firstColor(fill) || 'currentColor';
+      const style = { display: 'block', overflow: 'visible', fill: fill || 'none' };
+      if (stroke && sw > 0) { style.stroke = stroke; style.strokeWidth = fmtN(sw) + 'px'; style.strokeLinejoin = 'round'; }
+      return {
+        tag: 'svg',
+        attrs: { viewBox: '0 0 100 100', preserveAspectRatio: 'none', 'aria-hidden': 'true', focusable: 'false' },
+        style,
+        children: [{ tag: 'polygon', attrs: { points: shapePoints(shape, p), 'vector-effect': 'non-scaling-stroke' } }]
+      };
+    },
+    inspector: [{
+      title: 'Shape', fields: [
+        { key: 'props.shape', label: 'Shape', type: 'select', options: SHAPES.map((sh) => opt(sh, sh.charAt(0).toUpperCase() + sh.slice(1))) },
+        { key: 'props.sides', label: 'Sides', type: 'number', min: 3, max: 32, step: 1, when: (n) => n.props && n.props.shape === 'polygon' },
+        { key: 'props.points', label: 'Points', type: 'number', min: 3, max: 32, step: 1, when: (n) => n.props && n.props.shape === 'star' },
+        { key: 'style.stroke', label: 'Stroke', type: 'color' },
+        { key: 'style.strokeWidth', label: 'Stroke width', type: 'number', min: 0, step: 1 }
+      ]
+    }]
+  });
+
+  defs.push({
+    type: 'divider', label: 'Divider', icon: 'divider', category: 'basic',
+    caps: { fill: true, border: false, radius: true, shadow: false, effects: true },
+    defaults: () => ({ name: 'Divider', w: 480, h: 2, style: { fill: '#e5e7eb' }, props: {} }),
+    vnode: () => ({ tag: 'hr', attrs: {}, style: { margin: '0', border: '0' } }),
+    inspector: []
+  });
+
+  defs.push({
+    type: 'spacer', label: 'Spacer', icon: 'spacer', category: 'layout',
+    caps: { fill: false, border: false, radius: false, shadow: false, effects: false },
+    styleOmit: ['fill', 'fillImage', 'borderWidth', 'borderStyle', 'borderColor', 'radius', 'shadow', 'padding'],
+    defaults: () => ({ name: 'Spacer', w: 100, h: 32, props: {} }),
+    vnode: () => ({ tag: 'div', attrs: { 'aria-hidden': 'true' } }),
+    inspector: []
+  });
+
+  defs.push({
+    type: 'list', label: 'List', icon: 'list', category: 'text',
+    caps: { fill: true, border: true, radius: true, shadow: true, text: true, padding: true, effects: true },
+    bpProps: ['items'],
+    defaults: () => ({
+      name: 'List', w: 320, h: 120,
+      style: { fontSize: 16, lineHeight: 1.6, color: '#111827' },
+      props: { items: ['First item', 'Second item', 'Third item'], ordered: false }
+    }),
+    vnode: (node) => {
+      const p = node.props || {};
+      const items = Array.isArray(p.items) ? p.items : [];
+      return {
+        tag: p.ordered ? 'ol' : 'ul', attrs: {}, style: { margin: '0', paddingLeft: '1.5em' },
+        children: items.map((it) => ({ tag: 'li', text: util.isPlainObject(it) ? str(it.text) : str(it) }))
+      };
+    },
+    inspector: [{
+      title: 'List', fields: [
+        { key: 'props.items', label: 'Items', type: 'list' },
+        { key: 'props.ordered', label: 'Numbered', type: 'toggle' }
+      ]
+    }]
+  });
+
+  defs.push({
+    type: 'table', label: 'Table', icon: 'table', category: 'text',
+    caps: { fill: true, border: true, radius: true, shadow: true, text: true, padding: true, effects: true },
+    bpProps: ['rows', 'caption'],
+    defaults: () => ({
+      name: 'Table', w: 480, h: 160,
+      style: { fontSize: 16, lineHeight: 1.5, color: '#111827' },
+      props: { rows: [['Plan', 'Price'], ['Basic', '$9'], ['Pro', '$29']], header: true, caption: '' }
+    }),
+    vnode: (node) => {
+      const p = node.props || {};
+      const rows = Array.isArray(p.rows) ? p.rows.filter(Array.isArray) : [];
+      const cols = rows.reduce((m, r) => Math.max(m, r.length), 0);
+      const cells = (row, tag) => {
+        const out = [];
+        for (let i = 0; i < cols; i++) {
+          const cell = { tag, text: str(row[i]) };
+          if (tag === 'th') cell.attrs = { scope: 'col' };
+          out.push(cell);
+        }
+        return out;
+      };
+      const children = [];
+      if (str(p.caption).trim()) children.push({ tag: 'caption', text: str(p.caption) });
+      let body = rows;
+      if (p.header !== false && rows.length) {
+        children.push({ tag: 'thead', children: [{ tag: 'tr', children: cells(rows[0], 'th') }] });
+        body = rows.slice(1);
+      }
+      if (body.length) children.push({ tag: 'tbody', children: body.map((r) => ({ tag: 'tr', children: cells(r, 'td') })) });
+      return { tag: 'table', attrs: {}, style: { borderCollapse: 'collapse' }, children };
+    },
+    inspector: [{
+      title: 'Table', fields: [
+        { key: 'props.rows', label: 'Cells', type: 'table' },
+        { key: 'props.header', label: 'First row is header', type: 'toggle' },
+        { key: 'props.caption', label: 'Caption', type: 'text' }
+      ]
+    }]
+  });
+
+  defs.push({
+    type: 'html', label: 'HTML', icon: 'code', category: 'advanced',
+    caps: { fill: true, border: true, radius: true, shadow: true, text: true, padding: true, effects: true },
+    defaults: () => ({ name: 'HTML', w: 320, h: 160, props: { html: '<p>Custom HTML</p>' } }),
+    vnode: (node, ctx) => ({ tag: 'div', attrs: {}, html: sanitizeHTML(ctx, (node.props || {}).html, 'html') }),
+    inspector: [{ title: 'HTML', fields: [{ key: 'props.html', label: 'HTML (sanitized)', type: 'code', language: 'html' }] }]
+  });
+
+  defs.push({
+    type: 'instance', label: 'Instance', icon: 'component', category: 'advanced', insertable: false,
+    caps: { fill: false, border: false, radius: false, shadow: false, effects: true },
+    styleOmit: ['fill', 'fillImage', 'borderWidth', 'borderStyle', 'borderColor', 'radius', 'shadow', 'padding'],
+    defaults: () => ({ name: 'Instance', w: 320, h: 240, props: { component: '', overrides: {} } }),
+    vnode: (node, ctx) => {
+      // Expansion of the component master (with overrides) lives in vdom; required lazily.
+      if (ctx && ctx.doc && typeof APB !== 'undefined' && APB.has('vdom')) {
+        const v = APB.require('vdom').instanceVNode(ctx.doc, node, ctx);
+        if (v) return v;
+      }
+      return { tag: 'div', attrs: { 'data-component-missing': '' } };
+    },
+    inspector: [{ title: 'Component', fields: [{ key: 'props.component', label: 'Component', type: 'select', options: 'components' }] }]
+  });
+
+  // A type registered earlier by someone else (e.g. a replacement) is kept.
+  const registered = defs.map((def) => elements.get(def.type) || elements.register(Object.assign({ core: true }, def)));
+
+  return { TYPES: registered.map((d) => d.type), PLACEHOLDER_IMAGE, TEXT_TAGS, SECTION_TAGS, FRAME_TAGS, SHAPES, shapePoints };
+});
 </script>
 <script data-src="js/core/style.js">
-/* stub — owned by A2 */
+/* @node-testable */
+/*
+ * style — node → CSS declarations (shared by the editor renderer and the exporters).
+ * See ARCHITECTURE.md §6.9. Pure: no DOM.
+ *
+ * Every function returns a Map<kebab-property, value> with a deterministic insertion order:
+ *   box (position/size) → layout (flex) → type extras (VNode.style) → visual (STYLE_KEYS) →
+ *   node.css → hidden (display:none).
+ * Values are sanitized: token references `$id` become `var(--t-id)`; free-form strings pass a fast
+ * allowlist or `sanitize.css`; URLs only via `sanitize.url(…, 'image')`.
+ */
+APB.define('style', ['util', 'schema', 'sanitize', 'elements'], function (util, schema, sanitize, elements) {
+  'use strict';
+
+  const TOKEN_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+  const TOKEN_REF_RE = /\$([A-Za-z0-9_-]{1,64})/g;
+  const FAST_VALUE_RE = /^[#%(),./\w\s+\-'"]*$/;
+  const RISKY_VALUE_RE = /url\(|expression|javascript|vbscript|behavior|binding|image-set|@|\\/i;
+  const SIZING = new Set(['fixed', 'fill', 'hug']);
+
+  const KEYWORDS = {
+    fontStyle: ['normal', 'italic', 'oblique'],
+    textAlign: ['left', 'right', 'center', 'justify', 'start', 'end'],
+    textTransform: ['none', 'uppercase', 'lowercase', 'capitalize'],
+    borderStyle: ['solid', 'dashed', 'dotted', 'double', 'groove', 'ridge', 'inset', 'outset', 'none', 'hidden'],
+    blend: ['normal', 'multiply', 'screen', 'overlay', 'darken', 'lighten', 'color-dodge', 'color-burn', 'hard-light',
+      'soft-light', 'difference', 'exclusion', 'hue', 'saturation', 'color', 'luminosity', 'plus-lighter'],
+    overflow: ['visible', 'hidden', 'auto', 'clip', 'scroll'],
+    objectFit: ['fill', 'contain', 'cover', 'none', 'scale-down'],
+    cursor: ['auto', 'default', 'pointer', 'text', 'move', 'grab', 'grabbing', 'not-allowed', 'help', 'wait', 'progress',
+      'crosshair', 'zoom-in', 'zoom-out', 'copy', 'cell', 'none'],
+    fontWeight: ['normal', 'bold', 'bolder', 'lighter']
+  };
+
+  const VALIGN = { top: 'flex-start', middle: 'center', bottom: 'flex-end' };
+  const ALIGN = { start: 'flex-start', center: 'center', end: 'flex-end', stretch: 'stretch' };
+  const JUSTIFY = { start: 'flex-start', center: 'center', end: 'flex-end', between: 'space-between', around: 'space-around' };
+
+  /** Inherited properties reset with `unset` in diffDecls (so they inherit again). */
+  const INHERITED = new Set(['color', 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing',
+    'text-align', 'text-transform', 'text-shadow', 'cursor', 'visibility', 'white-space', 'word-spacing', 'overflow-wrap',
+    'fill', 'stroke', 'stroke-width']);
+
+  /* ------------------------------------------------------------ values */
+
+  const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
+
+  function fmt(n) {
+    const r = Math.round(n * 1000) / 1000;
+    return String(Object.is(r, -0) ? 0 : r);
+  }
+
+  /** px(12) → '12px'; px(0) → '0'. */
+  function px(n) {
+    if (!isNum(n)) return '';
+    const s = fmt(n);
+    return s === '0' ? '0' : s + 'px';
+  }
+
+  /** safeValue(value) → sanitized CSS value string or '' (numbers are formatted unitless). */
+  function safeValue(value) {
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'number') return Number.isFinite(value) ? fmt(value) : '';
+    if (typeof value !== 'string') return '';
+    const v = value.trim();
+    if (!v || v.length > 4000) return '';
+    if (FAST_VALUE_RE.test(v) && !RISKY_VALUE_RE.test(v)) return v;
+    if (/[{}<>]|!\s*important/i.test(v)) return '';
+    const out = sanitize.css('x: ' + v);
+    return out.startsWith('x: ') && splitDecls(out).length === 1 ? out.slice(3) : '';
+  }
+
+  /** resolveTokens('$primary') → 'var(--t-primary)' (also inside gradients/shadows). */
+  function resolveTokens(value) {
+    if (typeof value !== 'string' || value.indexOf('$') === -1) return value;
+    return value.replace(TOKEN_REF_RE, (_, id) => 'var(--t-' + id + ')');
+  }
+
+  /** cssValue(v) → token-resolved, sanitized CSS value or ''. */
+  function cssValue(value) {
+    return safeValue(resolveTokens(value));
+  }
+
+  function keyword(kind, value) {
+    return typeof value === 'string' && KEYWORDS[kind].includes(value) ? value : '';
+  }
+
+  function lengthValue(v) {
+    if (isNum(v)) return px(v);
+    return typeof v === 'string' ? safeValue(v) : '';
+  }
+
+  /** boxValue(8) → '8px'; boxValue([1,2,1,2]) → '1px 2px 1px 2px'; equal sides collapse to one value. */
+  function boxValue(v) {
+    if (isNum(v)) return px(v);
+    if (Array.isArray(v)) {
+      const n = schema.normalizePad(v);
+      if (n[0] === n[1] && n[1] === n[2] && n[2] === n[3]) return px(n[0]);
+      return n.map(px).join(' ');
+    }
+    return typeof v === 'string' ? safeValue(v) : '';
+  }
+
+  function fontWeight(v) {
+    if (isNum(v)) return v >= 1 && v <= 1000 ? fmt(v) : '';
+    if (typeof v === 'string') return /^\d{3}$/.test(v) ? v : keyword('fontWeight', v);
+    return '';
+  }
+
+  function fontFamily(v) {
+    if (typeof v !== 'string' || /[;{}<>\\]/.test(v)) return '';
+    return safeValue(v);
+  }
+
+  function mergeDefined(a, b) {
+    const out = Object.assign({}, util.isPlainObject(a) ? a : {});
+    if (util.isPlainObject(b)) for (const k of Object.keys(b)) if (b[k] !== undefined) out[k] = b[k];
+    return out;
+  }
+
+  function toMap(decls) {
+    if (Object.prototype.toString.call(decls) === '[object Map]') return decls;
+    const m = new Map();
+    if (decls && typeof decls === 'object') for (const k of Object.keys(decls)) m.set(k, decls[k]);
+    return m;
+  }
+
+  function merge(target, source) {
+    for (const [k, v] of source) target.set(k, v);
+    return target;
+  }
+
+  /* ------------------------------------------------------------ lookups */
+
+  function breakpoints(doc) {
+    return doc && doc.settings && Array.isArray(doc.settings.breakpoints) && doc.settings.breakpoints.length
+      ? doc.settings.breakpoints : schema.DEFAULT_BREAKPOINTS;
+  }
+
+  /** breakpoint(doc, bpId) → breakpoint object (base when unknown). */
+  function breakpoint(doc, bpId) {
+    const bps = breakpoints(doc);
+    return bps.find((b) => b && b.id === bpId) || bps[0];
+  }
+
+  function textTokenStyle(doc, id) {
+    if (typeof id !== 'string' || !id) return null;
+    const key = id.charAt(0) === '$' ? id.slice(1) : id;
+    const list = doc && doc.tokens && Array.isArray(doc.tokens.text) ? doc.tokens.text : [];
+    const tok = list.find((t) => t && t.id === key);
+    return tok && util.isPlainObject(tok.style) ? tok.style : null;
+  }
+
+  /** resolvedStyle(eff, doc) → node style with its text-style token merged underneath. */
+  function resolvedStyle(eff, doc) {
+    const own = eff && util.isPlainObject(eff.style) ? eff.style : {};
+    const tok = textTokenStyle(doc, own.textStyle);
+    return tok ? mergeDefined(tok, own) : own;
+  }
+
+  function effective(doc, idOrNode, bpId) {
+    return schema.effectiveNode(doc, idOrNode, bpId);
+  }
+
+  /* ---------------------------------------------------------------- box */
+
+  function bpWidth(bp, fallback) {
+    if (isNum(bp)) return bp;
+    if (bp && isNum(bp.width)) return bp.width;
+    return isNum(fallback) ? fallback : 1440;
+  }
+
+  /**
+   * boxDecls(eff, parentEff, { mode, bp }) — positioning & sizing. `bp` is the breakpoint object
+   * (or its width); only the editor page root uses it.
+   */
+  function boxDecls(eff, parentEff, opts) {
+    const o = opts || {};
+    const mode = o.mode === 'editor' ? 'editor' : 'export';
+    const d = new Map();
+    if (!eff) return d;
+    const sizing = util.isPlainObject(eff.sizing) ? eff.sizing : {};
+    const sw = SIZING.has(sizing.w) ? sizing.w : 'fixed';
+    const sh = SIZING.has(sizing.h) ? sizing.h : 'fixed';
+    const w = isNum(eff.w) ? Math.max(0, eff.w) : 0;
+    const h = isNum(eff.h) ? Math.max(0, eff.h) : 0;
+
+    if (!parentEff) {
+      d.set('position', 'relative');
+      if (eff.type === 'page') {
+        if (mode === 'editor') {
+          d.set('width', px(bpWidth(o.bp, w)));
+          const minH = eff.props && isNum(eff.props.minHeight) ? eff.props.minHeight : h;
+          d.set('min-height', px(Math.max(0, minH)));
+        } else {
+          d.set('width', '100%');
+          d.set('min-height', '100vh');
+        }
+      } else {
+        d.set('width', sw === 'fill' ? '100%' : sw === 'hug' ? 'auto' : px(w));
+        d.set('height', sh === 'fill' ? '100%' : sh === 'hug' ? 'auto' : px(h));
+      }
+    } else if (parentEff.layout && parentEff.layout.mode === 'stack') {
+      const dir = parentEff.layout.dir === 'row' ? 'row' : 'column';
+      const stretch = parentEff.layout.align === 'stretch';
+      const main = dir === 'row' ? 'w' : 'h';
+      let flex = false;
+      let alignSelf = false;
+      const size = {};
+      const min = {};
+      for (const axis of ['w', 'h']) {
+        const m = axis === 'w' ? sw : sh;
+        if (m === 'fill') {
+          if (axis === main) { flex = true; min[axis] = '0'; } else alignSelf = true;
+        } else if (m === 'hug') {
+          size[axis] = axis !== main && stretch ? 'fit-content' : 'auto';
+        } else {
+          size[axis] = px(axis === 'w' ? w : h);
+        }
+      }
+      d.set('position', 'relative');
+      if (size.w) d.set('width', size.w);
+      if (size.h) d.set('height', size.h);
+      if (min.w) d.set('min-width', min.w);
+      if (min.h) d.set('min-height', min.h);
+      if (flex) d.set('flex', '1 1 0');
+      else d.set('flex-shrink', '0');
+      if (alignSelf) d.set('align-self', 'stretch');
+    } else {
+      d.set('position', 'absolute');
+      d.set('left', sw === 'fill' ? '0' : px(isNum(eff.x) ? eff.x : 0));
+      d.set('top', sh === 'fill' ? '0' : px(isNum(eff.y) ? eff.y : 0));
+      d.set('width', sw === 'fill' ? '100%' : sw === 'hug' ? 'auto' : px(w));
+      d.set('height', sh === 'fill' ? '100%' : sh === 'hug' ? 'auto' : px(h));
+    }
+    if (isNum(eff.rotation) && eff.rotation % 360 !== 0) d.set('transform', 'rotate(' + fmt(eff.rotation) + 'deg)');
+    return d;
+  }
+
+  /* ------------------------------------------------------------- layout */
+
+  /** layoutDecls(eff) — stack containers → flexbox. Free containers emit nothing. */
+  function layoutDecls(eff) {
+    const d = new Map();
+    const l = eff && eff.layout;
+    if (!util.isPlainObject(l) || l.mode !== 'stack') return d;
+    d.set('display', 'flex');
+    d.set('flex-direction', l.dir === 'row' ? 'row' : 'column');
+    if (l.wrap) d.set('flex-wrap', 'wrap');
+    if (isNum(l.gap) && l.gap > 0) d.set('gap', px(l.gap));
+    const pad = schema.normalizePad(l.pad);
+    if (pad.some((v) => v !== 0)) d.set('padding', boxValue(pad));
+    d.set('align-items', ALIGN[l.align] || 'flex-start');
+    d.set('justify-content', JUSTIFY[l.justify] || 'flex-start');
+    return d;
+  }
+
+  /* ------------------------------------------------------------- visual */
+
+  function imageURL(fi, doc, o) {
+    let src = '';
+    if (typeof fi.asset === 'string' && fi.asset) {
+      if (typeof o.assetURL === 'function') src = o.assetURL(fi.asset) || '';
+      else {
+        const a = doc && doc.assets && Object.prototype.hasOwnProperty.call(doc.assets, fi.asset) ? doc.assets[fi.asset] : null;
+        src = a && typeof a.src === 'string' ? a.src : '';
+      }
+    }
+    if (!src && typeof fi.src === 'string') src = fi.src;
+    const safe = sanitize.url(src, 'image');
+    return safe ? 'url("' + safe.replace(/["\\\n\r]/g, (c) => encodeURIComponent(c)) + '")' : '';
+  }
+
+  /**
+   * visualDecls(eff, doc, { mode, assetURL, style, omit }) — declarations from STYLE_KEYS.
+   * `style` replaces the resolved node style (used for hover); `omit` overrides the element type's
+   * `styleOmit` list.
+   */
+  function visualDecls(eff, doc, opts) {
+    const o = opts || {};
+    const d = new Map();
+    if (!eff) return d;
+    const s = util.isPlainObject(o.style) ? o.style : resolvedStyle(eff, doc);
+    const omit = new Set(Array.isArray(o.omit) ? o.omit : elements.styleOmit(eff.type, eff));
+    const has = (k) => !omit.has(k) && s[k] !== undefined && s[k] !== null && s[k] !== '';
+    const set = (prop, val) => { if (val !== '' && val !== null && val !== undefined) d.set(prop, val); };
+    const leaf = !util.isPlainObject(eff.layout);
+
+    // Background (longhands only, so breakpoint diffs never reset each other).
+    const fill = has('fill') ? cssValue(s.fill) : '';
+    const gradient = /gradient\(/i.test(fill);
+    const img = has('fillImage') && util.isPlainObject(s.fillImage) ? imageURL(s.fillImage, doc, o) : '';
+    if (fill && !gradient) set('background-color', fill);
+    if (img || gradient) {
+      set('background-image', [img, gradient ? fill : ''].filter(Boolean).join(', '));
+      if (img) {
+        const fi = s.fillImage;
+        const size = ['cover', 'contain', 'auto'].includes(fi.size) ? fi.size : (safeValue(fi.size) || 'cover');
+        const pos = safeValue(fi.position) || 'center';
+        const rep = fi.repeat ? 'repeat' : 'no-repeat';
+        set('background-size', gradient ? size + ', auto' : size);
+        set('background-position', gradient ? pos + ', center' : pos);
+        set('background-repeat', gradient ? rep + ', no-repeat' : rep);
+      }
+    }
+
+    if (has('color')) set('color', cssValue(s.color));
+    if (has('fontFamily')) set('font-family', fontFamily(s.fontFamily));
+    if (has('fontSize')) set('font-size', lengthValue(s.fontSize));
+    if (has('fontWeight')) set('font-weight', fontWeight(s.fontWeight));
+    if (has('fontStyle')) set('font-style', keyword('fontStyle', s.fontStyle));
+    if (has('lineHeight')) set('line-height', isNum(s.lineHeight) ? fmt(s.lineHeight) : safeValue(s.lineHeight));
+    if (has('letterSpacing')) set('letter-spacing', lengthValue(s.letterSpacing));
+    if (has('textAlign')) set('text-align', keyword('textAlign', s.textAlign));
+    if (has('textDecoration')) set('text-decoration', safeValue(s.textDecoration));
+    if (has('textTransform')) set('text-transform', keyword('textTransform', s.textTransform));
+    if (has('textShadow')) set('text-shadow', cssValue(s.textShadow));
+
+    if (leaf && has('valign') && (s.valign === 'middle' || s.valign === 'bottom')) {
+      d.set('display', 'flex');
+      d.set('flex-direction', 'column');
+      d.set('justify-content', VALIGN[s.valign]);
+    }
+    if (leaf && has('padding')) set('padding', boxValue(s.padding));
+
+    if (has('borderWidth') && isNum(s.borderWidth) && s.borderWidth > 0) {
+      set('border-width', px(s.borderWidth));
+      set('border-style', (has('borderStyle') && keyword('borderStyle', s.borderStyle)) || 'solid');
+      if (has('borderColor')) set('border-color', cssValue(s.borderColor));
+    }
+    if (has('radius')) set('border-radius', boxValue(s.radius));
+    if (has('shadow')) set('box-shadow', cssValue(s.shadow));
+    if (has('opacity') && isNum(s.opacity) && s.opacity < 1) set('opacity', fmt(Math.max(0, s.opacity)));
+    if (has('blur') && isNum(s.blur) && s.blur > 0) set('filter', 'blur(' + px(s.blur) + ')');
+    if (has('backdropBlur') && isNum(s.backdropBlur) && s.backdropBlur > 0) {
+      set('-webkit-backdrop-filter', 'blur(' + px(s.backdropBlur) + ')');
+      set('backdrop-filter', 'blur(' + px(s.backdropBlur) + ')');
+    }
+    if (has('blend') && s.blend !== 'normal') set('mix-blend-mode', keyword('blend', s.blend));
+    if (has('overflow')) set('overflow', keyword('overflow', s.overflow));
+    if (has('objectFit')) set('object-fit', keyword('objectFit', s.objectFit));
+    if (has('objectPosition')) set('object-position', safeValue(s.objectPosition));
+    if (has('cursor')) set('cursor', keyword('cursor', s.cursor));
+    return d;
+  }
+
+  /** hoverDecls(eff, doc) — from states.hover.style (+ sanitized `transform`, composed with rotation). */
+  function hoverDecls(eff, doc, opts) {
+    const hover = eff && util.isPlainObject(eff.states) && util.isPlainObject(eff.states.hover) ? eff.states.hover.style : null;
+    if (!util.isPlainObject(hover)) return new Map();
+    const tok = textTokenStyle(doc, hover.textStyle);
+    const d = visualDecls(eff, doc, Object.assign({}, opts, { style: tok ? mergeDefined(tok, hover) : hover }));
+    if (typeof hover.transform === 'string' && hover.transform.trim()) {
+      const t = safeValue(hover.transform);
+      if (t) d.set('transform', isNum(eff.rotation) && eff.rotation % 360 !== 0 ? 'rotate(' + fmt(eff.rotation) + 'deg) ' + t : t);
+    }
+    return d;
+  }
+
+  /* ------------------------------------------------------------ strings */
+
+  function splitDecls(str) {
+    const out = [];
+    let cur = '';
+    let quote = '';
+    let depth = 0;
+    for (let i = 0; i < str.length; i++) {
+      const c = str[i];
+      if (quote) {
+        cur += c;
+        if (c === '\\' && i + 1 < str.length) { cur += str[++i]; continue; }
+        if (c === quote) quote = '';
+        continue;
+      }
+      if (c === '"' || c === "'") quote = c;
+      else if (c === '(') depth++;
+      else if (c === ')') depth = Math.max(0, depth - 1);
+      else if (c === ';' && depth === 0) { out.push(cur); cur = ''; continue; }
+      cur += c;
+    }
+    if (cur.trim()) out.push(cur);
+    return out;
+  }
+
+  /** parseDecls('color: red; …') → Map (sanitized through sanitize.css). */
+  function parseDecls(str) {
+    const m = new Map();
+    const clean = sanitize.css(typeof str === 'string' ? str : '');
+    if (!clean) return m;
+    for (const part of splitDecls(clean)) {
+      const i = part.indexOf(':');
+      if (i <= 0) continue;
+      const prop = part.slice(0, i).trim();
+      const val = part.slice(i + 1).trim();
+      if (prop && val) m.set(prop, val);
+    }
+    return m;
+  }
+
+  function kebabProp(key) {
+    return key.startsWith('--') ? key : util.kebab(key);
+  }
+
+  /** extraDecls({ alignItems: 'center' }) → Map (camelCase or kebab keys, values sanitized). */
+  function extraDecls(extra) {
+    const m = new Map();
+    if (!extra) return m;
+    const src = toMap(extra);
+    for (const [k, v] of src) {
+      if (typeof k !== 'string' || !/^-?-?[A-Za-z][A-Za-z0-9-]*$/.test(k)) continue;
+      const val = cssValue(v);
+      if (val) m.set(kebabProp(k), val);
+    }
+    return m;
+  }
+
+  /** declsToString(map, { sep = '; ' }) → 'position: absolute; left: 0'. */
+  function declsToString(decls, opts) {
+    const sep = (opts && opts.sep) || '; ';
+    const parts = [];
+    for (const [k, v] of toMap(decls)) if (v !== '' && v !== null && v !== undefined) parts.push(k + ': ' + v);
+    return parts.join(sep);
+  }
+
+  /** declsToObject(map, { camel = true }) → plain object for VNode.style (custom properties keep their name). */
+  function declsToObject(decls, opts) {
+    const camel = !(opts && opts.camel === false);
+    const out = {};
+    for (const [k, v] of toMap(decls)) out[camel && !k.startsWith('--') ? util.camel(k) : k] = v;
+    return out;
+  }
+
+  function resetValue(prop) {
+    if (prop === 'display') return 'revert';
+    return INHERITED.has(prop) ? 'unset' : 'initial';
+  }
+
+  /**
+   * diffDecls(baseMap, map) → Map of declarations to emit on top of base: removed properties first
+   * (reset to 'initial', 'unset' for inherited ones, 'revert' for display), then changed/added
+   * ones in `map` order — so a shorthand reset never clobbers a longhand that follows it.
+   */
+  function diffDecls(baseMap, map) {
+    const base = toMap(baseMap);
+    const next = toMap(map);
+    const out = new Map();
+    for (const k of base.keys()) if (!next.has(k)) out.set(k, resetValue(k));
+    for (const [k, v] of next) if (base.get(k) !== v) out.set(k, v);
+    return out;
+  }
+
+  /* --------------------------------------------------------- node decls */
+
+  /**
+   * nodeDecls(doc, node, bpId, { mode, parentEff, bp, extra, assetURL, effective, box = true })
+   * → Map. `parentEff` defaults to the effective parent (pass null for a root); `extra` is the
+   * VNode.style of the type; `effective: true` skips the cascade (node is already effective).
+   */
+  function nodeDecls(doc, node, bpId, opts) {
+    const o = opts || {};
+    const d = new Map();
+    const eff = o.effective ? (typeof node === 'object' ? node : schema.getNode(doc, node)) : schema.effectiveNode(doc, node, bpId);
+    if (!eff) return d;
+    let parentEff = o.parentEff;
+    if (parentEff === undefined) parentEff = eff.parent ? schema.effectiveNode(doc, eff.parent, bpId) : null;
+    if (o.box !== false) merge(d, boxDecls(eff, parentEff, { mode: o.mode, bp: o.bp || breakpoint(doc, bpId) }));
+    merge(d, layoutDecls(eff));
+    if (o.extra) merge(d, extraDecls(o.extra));
+    merge(d, visualDecls(eff, doc, { mode: o.mode, assetURL: o.assetURL }));
+    if (typeof eff.css === 'string' && eff.css.trim()) merge(d, parseDecls(eff.css));
+    if (eff.hidden) d.set('display', 'none');
+    return d;
+  }
+
+  /** tokensCSS(doc) → ':root{--t-primary:#2563eb;…}' ('' when the document has no color tokens). */
+  function tokensCSS(doc) {
+    const list = doc && doc.tokens && Array.isArray(doc.tokens.colors) ? doc.tokens.colors : [];
+    const parts = [];
+    for (const t of list) {
+      if (!t || typeof t.id !== 'string' || !TOKEN_ID_RE.test(t.id)) continue;
+      const v = cssValue(t.value);
+      if (v) parts.push('--t-' + t.id + ':' + v);
+    }
+    return parts.length ? ':root{' + parts.join(';') + '}' : '';
+  }
+
+  /* ------------------------------------------------ design-unit helpers */
+
+  const SCALE_PROPS = new Set(['left', 'top', 'right', 'bottom', 'width', 'height', 'min-width', 'min-height', 'max-width',
+    'max-height', 'font-size', 'letter-spacing', 'gap', 'padding', 'border-width', 'border-radius', 'flex-basis']);
+
+  /**
+   * designUnitDecls(decls, { designWidth = 1440, unit = 'var(--u)', centerLeft = false }) → new Map
+   * where px lengths of geometric/typographic properties become `calc(N * var(--u))`. With
+   * `centerLeft`, `left` also gets the centering offset for screens wider than the design width.
+   */
+  function designUnitDecls(decls, opts) {
+    const o = opts || {};
+    const unit = typeof o.unit === 'string' && o.unit ? o.unit : 'var(--u)';
+    const W = isNum(o.designWidth) && o.designWidth > 0 ? o.designWidth : 1440;
+    const out = new Map();
+    for (const [k, v] of toMap(decls)) {
+      if (!SCALE_PROPS.has(k) || typeof v !== 'string' || !/\dpx\b/.test(v)) { out.set(k, v); continue; }
+      let nv = v.replace(/(-?\d*\.?\d+)px\b/g, (_, n) => 'calc(' + n + ' * ' + unit + ')');
+      if (k === 'left' && o.centerLeft && /^-?\d*\.?\d+px$/.test(v)) {
+        nv = 'calc(max(0px, (100cqw - ' + fmt(W) + 'px) / 2) + ' + parseFloat(v) + ' * ' + unit + ')';
+      }
+      out.set(k, nv);
+    }
+    return out;
+  }
+
+  /** designUnitVars(designWidth, { name = '--u' }) → Map for the scaling container (free section). */
+  function designUnitVars(designWidth, opts) {
+    const W = isNum(designWidth) && designWidth > 0 ? designWidth : 1440;
+    const name = opts && typeof opts.name === 'string' && /^--[A-Za-z0-9_-]+$/.test(opts.name) ? opts.name : '--u';
+    return new Map([['container-type', 'inline-size'], [name, 'min(1px, calc(100cqw / ' + fmt(W) + '))']]);
+  }
+
+  return {
+    effective, nodeDecls, boxDecls, layoutDecls, visualDecls, hoverDecls, tokensCSS,
+    declsToString, declsToObject, diffDecls, parseDecls, extraDecls,
+    designUnitDecls, designUnitVars,
+    cssValue, safeValue, resolveTokens, px, fmt, boxValue, resolvedStyle, breakpoint, resetValue
+  };
+});
 </script>
 <script data-src="js/core/vdom.js">
-/* stub — owned by A2 */
+/* @node-testable */
+/*
+ * vdom — VNode → HTML string / DOM, plus the full-tree builder shared by the editor renderer and
+ * the exporters (including component instance expansion). See ARCHITECTURE.md §5.4, §6.9.1.
+ *
+ * toHTML/buildTree/expandInstance are pure and work in Node; toDOM/patch return null (no-op)
+ * when there is no DOM.
+ */
+APB.define('vdom', ['util', 'schema', 'sanitize', 'elements', 'style'], function (util, schema, sanitize, elements, style) {
+  'use strict';
+
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']);
+  /** Never emitted (rendered as div, or g inside svg). */
+  const BANNED_TAGS = new Set(['script', 'style', 'base', 'meta', 'link', 'noscript', 'template', 'object', 'embed', 'applet',
+    'frame', 'frameset', 'xmp', 'plaintext', 'noembed', 'noframes', 'foreignobject', 'use', 'animate', 'set',
+    'animatetransform', 'animatemotion', 'handler', 'listener']);
+  const TAG_RE = /^[a-zA-Z][a-zA-Z0-9-]{0,39}$/;
+  const ATTR_RE = /^[a-zA-Z_:][a-zA-Z0-9_:.-]{0,63}$/;
+  const STYLE_KEY_RE = /^-?-?[A-Za-z][A-Za-z0-9-]*$/;
+  const URL_ATTRS = new Set(['href', 'src', 'action', 'formaction', 'poster', 'cite', 'data', 'background', 'xlink:href',
+    'srcset', 'ping', 'longdesc', 'manifest', 'codebase', 'lowsrc', 'dynsrc', 'imagesrcset']);
+  const DROP_ATTRS = new Set(['srcdoc', 'is']);
+  const PRE_TAGS = new Set(['pre', 'textarea']);
+  const STRUCT_TAGS = new Set(['ul', 'ol', 'table', 'thead', 'tbody', 'tfoot', 'tr', 'colgroup', 'svg', 'g', 'defs', 'select', 'optgroup', 'dl', 'menu']);
+  const INLINE_TAGS = new Set(['a', 'abbr', 'b', 'bdi', 'bdo', 'br', 'cite', 'code', 'data', 'dfn', 'em', 'i', 'img', 'kbd',
+    'mark', 'q', 's', 'samp', 'small', 'span', 'strong', 'sub', 'sup', 'time', 'u', 'var', 'wbr', 'label', 'button',
+    'input', 'select', 'textarea']);
+
+  /* ------------------------------------------------------------ helpers */
+
+  function tagName(tag, inSvg) {
+    if (typeof tag !== 'string' || !TAG_RE.test(tag)) return inSvg ? 'g' : 'div';
+    const lower = tag.toLowerCase();
+    if (BANNED_TAGS.has(lower)) return inSvg ? 'g' : 'div';
+    return inSvg || lower === 'svg' ? tag : lower;
+  }
+
+  function stripInvisible(s) {
+    let out = '';
+    for (let i = 0; i < s.length; i++) {
+      const c = s.charCodeAt(i);
+      if (c <= 32 || (c >= 127 && c <= 159) || c === 173 || (c >= 0x200b && c <= 0x200f) || c === 0x2028 || c === 0x2029 || c === 0xfeff) continue;
+      out += s[i];
+    }
+    return out;
+  }
+
+  function safeURLValue(tag, name, value) {
+    const s = stripInvisible(String(value));
+    const m = /^([a-zA-Z][a-zA-Z0-9+.-]*):/.exec(s);
+    if (!m) return true; // relative reference
+    const scheme = m[1].toLowerCase();
+    if (scheme === 'javascript' || scheme === 'vbscript' || scheme === 'livescript') return false;
+    if (scheme === 'data') {
+      if (name !== 'src' && name !== 'srcset' && name !== 'poster' && name !== 'imagesrcset') return false;
+      if (/^data:image\/(png|jpe?g|gif|webp|avif|bmp)[;,]/i.test(s)) return true;
+      return tag === 'img' && /^data:image\/svg\+xml[;,]/i.test(s);
+    }
+    return true;
+  }
+
+  function safeURLAttr(tag, name, value) {
+    if (name === 'srcset' || name === 'imagesrcset') {
+      return String(value).split(',').every((part) => safeURLValue(tag, name, part.trim().split(/\s+/)[0] || ''));
+    }
+    return safeURLValue(tag, name, value);
+  }
+
+  function styleString(st) {
+    if (!st) return '';
+    const entries = Object.prototype.toString.call(st) === '[object Map]' ? Array.from(st) : (typeof st === 'object' ? Object.entries(st) : []);
+    const parts = [];
+    for (const [k, v] of entries) {
+      if (typeof k !== 'string' || !STYLE_KEY_RE.test(k)) continue;
+      const val = style.safeValue(v);
+      if (val) parts.push((k.startsWith('--') ? k : util.kebab(k)) + ': ' + val);
+    }
+    return parts.join('; ');
+  }
+
+  /** collectAttrs(vnode, tag) → [[name, value|true]] — validated, URL-checked, style last. */
+  function collectAttrs(v, tag) {
+    const out = [];
+    const attrs = v && v.attrs && typeof v.attrs === 'object' ? v.attrs : {};
+    let styleAttr = '';
+    for (const name of Object.keys(attrs)) {
+      const val = attrs[name];
+      if (val === undefined || val === null || val === false) continue;
+      if (!ATTR_RE.test(name)) continue;
+      const lower = name.toLowerCase();
+      if (lower.startsWith('on') || DROP_ATTRS.has(lower)) continue;
+      if (lower === 'style') {
+        if (typeof val === 'string') styleAttr = sanitize.css(val);
+        continue;
+      }
+      if (val === true) { out.push([name, true]); continue; }
+      let s;
+      if (Array.isArray(val)) s = val.filter((x) => typeof x === 'string' || typeof x === 'number').join(' ');
+      else if (typeof val === 'string' || typeof val === 'number') s = String(val);
+      else continue;
+      if (URL_ATTRS.has(lower) && !safeURLAttr(String(tag).toLowerCase(), lower, s)) continue;
+      out.push([name, s]);
+    }
+    const css = [styleAttr, styleString(v && v.style)].filter(Boolean).join('; ');
+    if (css) out.push(['style', css]);
+    return out;
+  }
+
+  function mergeDefined(a, b) {
+    const out = Object.assign({}, util.isPlainObject(a) ? a : {});
+    if (util.isPlainObject(b)) for (const k of Object.keys(b)) if (b[k] !== undefined) out[k] = b[k];
+    return out;
+  }
+
+  function findSlot(v) {
+    if (v.slot) return v;
+    const queue = Array.isArray(v.children) ? v.children.slice() : [];
+    while (queue.length) {
+      const c = queue.shift();
+      if (!util.isPlainObject(c)) continue;
+      if (c.slot) return c;
+      if (Array.isArray(c.children)) queue.push(...c.children);
+    }
+    return v;
+  }
+
+  /* ------------------------------------------------------------- toHTML */
+
+  function render(v, depth, o, inSvg) {
+    if (v === null || v === undefined || v === false) return '';
+    if (typeof v === 'string' || typeof v === 'number') return util.escapeHTML(v);
+    if (typeof v !== 'object') return '';
+    const tag = tagName(v.tag, inSvg);
+    const svg = inSvg || tag === 'svg';
+    let out = '<' + tag;
+    for (const [n, val] of collectAttrs(v, tag)) out += val === true ? ' ' + n : ' ' + n + '="' + util.escapeAttr(val) + '"';
+    out += '>';
+    if (!svg && VOID.has(tag)) return out;
+    if (v.text !== undefined && v.text !== null) {
+      out += util.escapeHTML(v.text);
+    } else if (typeof v.html === 'string') {
+      out += v.html;
+    } else if (Array.isArray(v.children)) {
+      const kids = v.children.filter((c) => c !== null && c !== undefined && c !== false && c !== '');
+      const block = o.pretty && kids.length > 0 && !PRE_TAGS.has(tag) &&
+        (v.slot || STRUCT_TAGS.has(tag.toLowerCase()) || kids.every((c) => util.isPlainObject(c) && !INLINE_TAGS.has(String(c.tag).toLowerCase())));
+      if (block) {
+        const pad = ' '.repeat(o.indent * (depth + 1));
+        out += '\n' + kids.map((c) => pad + render(c, depth + 1, o, svg)).join('\n') + '\n' + ' '.repeat(o.indent * depth);
+      } else {
+        out += kids.map((c) => render(c, depth + 1, o, svg)).join('');
+      }
+    }
+    return out + '</' + tag + '>';
+  }
+
+  /** toHTML(vnode, { indent = 2, pretty = true }) → string (text and attributes escaped). */
+  function toHTML(vnode, opts) {
+    const o = opts || {};
+    const indent = Number.isFinite(o.indent) ? Math.max(0, Math.floor(o.indent)) : 2;
+    const pretty = o.pretty !== false;
+    if (Array.isArray(vnode)) return vnode.map((v) => render(v, 0, { indent, pretty }, false)).join(pretty ? '\n' : '');
+    return render(vnode, 0, { indent, pretty }, false);
+  }
+
+  /* -------------------------------------------------------- toDOM/patch */
+
+  function hasDOM() {
+    return typeof document !== 'undefined' && !!document && typeof document.createElement === 'function';
+  }
+
+  const htmlCache = new WeakMap();
+  const styleCache = new WeakMap();
+
+  function setContentHTML(el, html, profile) {
+    if (htmlCache.get(el) === html) return;
+    el.innerHTML = sanitize.html(html, profile || 'html'); // defence in depth: always re-sanitized
+    htmlCache.set(el, html);
+  }
+
+  function applyAttrs(el, v, tag, keep) {
+    const next = collectAttrs(v, tag);
+    const names = new Set();
+    for (const [n, val] of next) {
+      names.add(n.toLowerCase());
+      if (n === 'style') {
+        if (styleCache.get(el) !== val || !el.hasAttribute('style')) { el.style.cssText = val; styleCache.set(el, val); }
+      } else {
+        const sv = val === true ? '' : val;
+        if (el.getAttribute(n) !== sv) el.setAttribute(n, sv);
+      }
+    }
+    for (const a of Array.from(el.attributes)) {
+      const n = a.name.toLowerCase();
+      if (!names.has(n) && !(keep && keep.includes(n))) {
+        el.removeAttribute(a.name);
+        if (n === 'style') styleCache.delete(el);
+      }
+    }
+  }
+
+  function createEl(v, o, inSvg, doc) {
+    if (v === null || v === undefined || v === false) return null;
+    if (typeof v === 'string' || typeof v === 'number') return doc.createTextNode(String(v));
+    if (typeof v !== 'object') return null;
+    const tag = tagName(v.tag, inSvg);
+    const svg = inSvg || tag === 'svg';
+    const el = svg ? doc.createElementNS(SVG_NS, tag) : doc.createElement(tag);
+    applyAttrs(el, v, tag, null);
+    if (v.text !== undefined && v.text !== null) el.textContent = String(v.text);
+    else if (typeof v.html === 'string' && !svg) setContentHTML(el, v.html, v.htmlProfile);
+    else if (Array.isArray(v.children)) {
+      for (const c of v.children) {
+        const child = createEl(c, o, svg, doc);
+        if (child) el.appendChild(child);
+      }
+    }
+    if (typeof o.onElement === 'function') o.onElement(el, v);
+    return el;
+  }
+
+  /** toDOM(vnode, { onElement(el, vnode), document }) → Element | null (null without a DOM). */
+  function toDOM(vnode, opts) {
+    const o = opts || {};
+    const doc = o.document || (hasDOM() ? document : null);
+    if (!doc) return null;
+    return createEl(vnode, o, !!o.svg, doc);
+  }
+
+  function nodeKey(v) {
+    return util.isPlainObject(v) && v.attrs && typeof v.attrs['data-node-id'] === 'string' ? v.attrs['data-node-id'] : '';
+  }
+
+  function patchChildren(parent, kids, o, svg, doc) {
+    const list = (Array.isArray(kids) ? kids : []).filter((c) => c !== null && c !== undefined && c !== false);
+    const keyed = new Map();
+    for (const n of Array.from(parent.childNodes)) {
+      if (n.nodeType === 1 && n.hasAttribute('data-node-id')) keyed.set(n.getAttribute('data-node-id'), n);
+    }
+    let i = 0;
+    for (const child of list) {
+      let cur = parent.childNodes[i] || null;
+      if (typeof child !== 'object') {
+        if (cur && cur.nodeType === 3) { if (cur.data !== String(child)) cur.data = String(child); }
+        else parent.insertBefore(doc.createTextNode(String(child)), cur);
+        i++;
+        continue;
+      }
+      const key = nodeKey(child);
+      if (key && keyed.has(key) && keyed.get(key) !== cur) {
+        parent.insertBefore(keyed.get(key), cur);
+        cur = keyed.get(key);
+      }
+      const reusable = cur && cur.nodeType === 1 && (cur.getAttribute('data-node-id') || '') === key;
+      if (reusable) patchEl(cur, child, o, svg, doc);
+      else {
+        const fresh = createEl(child, o, svg, doc);
+        if (fresh) parent.insertBefore(fresh, cur);
+        else continue;
+      }
+      i++;
+    }
+    while (parent.childNodes.length > i) parent.removeChild(parent.lastChild);
+  }
+
+  function patchEl(el, v, o, parentSvg, doc) {
+    const tag = tagName(v && v.tag, parentSvg);
+    const svg = parentSvg || tag === 'svg';
+    const same = el.nodeType === 1 && util.isPlainObject(v) &&
+      (svg ? el.namespaceURI === SVG_NS && el.localName === tag : el.namespaceURI !== SVG_NS && el.localName === tag);
+    if (!same) {
+      const fresh = createEl(v, o, parentSvg, doc);
+      if (fresh && el.parentNode) el.parentNode.replaceChild(fresh, el);
+      return fresh;
+    }
+    applyAttrs(el, v, tag, o.keepAttrs || null);
+    if (v.text !== undefined && v.text !== null) {
+      const text = String(v.text);
+      htmlCache.delete(el);
+      if (!(el.childNodes.length === 1 && el.firstChild.nodeType === 3 && el.firstChild.data === text)) el.textContent = text;
+    } else if (typeof v.html === 'string' && !svg) {
+      setContentHTML(el, v.html, v.htmlProfile);
+    } else {
+      htmlCache.delete(el);
+      patchChildren(el, v.children, o, svg, doc);
+    }
+    if (typeof o.onElement === 'function') o.onElement(el, v);
+    return el;
+  }
+
+  /**
+   * patch(el, vnode, { onElement, keepAttrs }) → Element — updates attributes/style/text/children in
+   * place when the tag matches (children keyed by data-node-id), otherwise replaces the element.
+   */
+  function patch(el, vnode, opts) {
+    if (!el || !hasDOM()) return el || null;
+    const o = opts || {};
+    const doc = el.ownerDocument || document;
+    const parentSvg = !!(el.parentNode && el.parentNode.namespaceURI === SVG_NS);
+    return patchEl(el, vnode, o, parentSvg, doc);
+  }
+
+  /* ---------------------------------------------------------- buildTree */
+
+  function defaultAssetURL(doc, id) {
+    const a = doc && doc.assets && typeof id === 'string' && Object.prototype.hasOwnProperty.call(doc.assets, id) ? doc.assets[id] : null;
+    return a && typeof a.src === 'string' ? (sanitize.url(a.src, 'image') || sanitize.url(a.src, 'media')) : '';
+  }
+
+  function makeEnv(doc, o) {
+    const bp = style.breakpoint(doc, o.bp);
+    const mode = o.mode === 'editor' ? 'editor' : 'export';
+    const classFor = typeof o.classFor === 'function' ? o.classFor : null;
+    return {
+      doc, mode, bpId: bp ? bp.id : undefined, bpDef: bp,
+      withIds: o.withIds !== undefined && o.withIds !== null ? !!o.withIds : mode === 'editor',
+      includeHidden: !!o.includeHidden,
+      classFor,
+      onNode: typeof o.onNode === 'function' ? o.onNode : null,
+      inlineStyles: o.inlineStyles !== undefined && o.inlineStyles !== null ? !!o.inlineStyles : (mode === 'editor' || !classFor),
+      sanitizeHTML: typeof o.sanitizeHTML === 'function' ? o.sanitizeHTML : sanitize.html,
+      assetURL: typeof o.assetURL === 'function' ? o.assetURL : (id) => defaultAssetURL(doc, id),
+      resolveURL: typeof o.resolveURL === 'function' ? o.resolveURL : sanitize.url,
+      icon: typeof o.icon === 'function' ? o.icon : () => null
+    };
+  }
+
+  function docScope(env) {
+    return {
+      virtual: false,
+      stack: [],
+      get: (id) => schema.getNode(env.doc, id),
+      eff: (node) => schema.effectiveNode(env.doc, node, env.bpId)
+    };
+  }
+
+  /**
+   * Expansion scope of an instance: virtual copies of the master subtree. The root copy takes the
+   * instance id (and its box, visibility, attrs, extra style); inner nodes get `${instanceId}:${masterId}`.
+   * Overrides `{ [masterId]: { props, style } }` are applied after the breakpoint cascade.
+   */
+  function expandScope(doc, inst, bpId, parentScope) {
+    const p = inst && util.isPlainObject(inst.props) ? inst.props : {};
+    const cid = p.component;
+    const comps = doc && util.isPlainObject(doc.components) ? doc.components : {};
+    if (typeof cid !== 'string' || !Object.prototype.hasOwnProperty.call(comps, cid) || !comps[cid]) return null;
+    const stack = parentScope && Array.isArray(parentScope.stack) ? parentScope.stack : [];
+    if (stack.includes(cid) || stack.length >= 16) return null;
+    const master = schema.getNode(doc, comps[cid].root);
+    if (!master) return null;
+    const overrides = util.isPlainObject(p.overrides) ? p.overrides : {};
+    const prefix = inst.id + ':';
+    const entries = new Map();
+    const seen = new Set();
+    const visit = (m, parentId, isRoot) => {
+      if (seen.has(m.id)) return;
+      seen.add(m.id);
+      const id = isRoot ? inst.id : prefix + m.id;
+      const copy = Object.assign({}, m, { id, parent: parentId });
+      const kids = Array.isArray(m.children) ? m.children.map((c) => schema.getNode(doc, c)).filter(Boolean) : null;
+      if (kids) copy.children = kids.map((k) => prefix + k.id);
+      entries.set(id, { node: copy, masterId: m.id, root: isRoot });
+      if (kids) kids.forEach((k) => visit(k, id, false));
+    };
+    visit(master, inst.parent === undefined ? null : inst.parent, true);
+
+    const cache = new Map();
+    const scope = {
+      virtual: true,
+      stack: stack.concat(cid),
+      component: cid,
+      get: (id) => { const e = entries.get(id); return e ? e.node : null; },
+      eff: (node) => {
+        const e = node && entries.get(node.id);
+        if (!e || e.node !== node) return parentScope ? parentScope.eff(node) : schema.effectiveNode(doc, node, bpId);
+        if (cache.has(node.id)) return cache.get(node.id);
+        const eff = Object.assign({}, schema.effectiveNode(doc, e.node, bpId), { bp: {} });
+        const ov = overrides[e.masterId];
+        if (util.isPlainObject(ov)) {
+          if (util.isPlainObject(ov.props)) eff.props = mergeDefined(eff.props, ov.props);
+          if (util.isPlainObject(ov.style)) eff.style = mergeDefined(eff.style, ov.style);
+          if (util.isPlainObject(ov.sizing)) eff.sizing = mergeDefined(eff.sizing, ov.sizing);
+          if (util.isPlainObject(ov.attrs)) eff.attrs = mergeDefined(eff.attrs, ov.attrs);
+          if (util.isPlainObject(ov.layout) && util.isPlainObject(eff.layout)) eff.layout = mergeDefined(eff.layout, ov.layout);
+          if (typeof ov.hidden === 'boolean') eff.hidden = ov.hidden;
+          if (typeof ov.name === 'string' && ov.name) eff.name = ov.name;
+        }
+        if (e.root) {
+          for (const k of ['name', 'x', 'y', 'w', 'h', 'rotation', 'hidden', 'locked', 'sizing', 'parent']) {
+            if (inst[k] !== undefined) eff[k] = inst[k];
+          }
+          eff.style = mergeDefined(eff.style, inst.style);
+          const attrs = Object.assign({}, eff.attrs);
+          if (util.isPlainObject(inst.attrs)) for (const k of Object.keys(inst.attrs)) if (inst.attrs[k] !== undefined && inst.attrs[k] !== '') attrs[k] = inst.attrs[k];
+          eff.attrs = attrs;
+          if (inst.motion) eff.motion = inst.motion;
+          if (typeof inst.css === 'string' && inst.css.trim()) eff.css = [eff.css, inst.css].filter((s) => typeof s === 'string' && s.trim()).join('; ');
+          if (util.isPlainObject(inst.states) && Object.keys(inst.states).length) eff.states = inst.states;
+          eff.instance = { id: inst.id, component: cid, master: e.masterId };
+        }
+        cache.set(node.id, eff);
+        return eff;
+      }
+    };
+    return { root: entries.get(inst.id).node, scope, entries };
+  }
+
+  function makeCtx(env, node, eff, scope) {
+    return {
+      mode: env.mode, doc: env.doc, bp: env.bpId, breakpoint: env.bpDef, effective: eff, node,
+      virtual: !!scope.virtual, withIds: env.withIds, includeHidden: env.includeHidden, classFor: env.classFor,
+      assetURL: env.assetURL, resolveURL: env.resolveURL, sanitizeHTML: env.sanitizeHTML,
+      escape: util.escapeHTML, icon: env.icon, cssValue: style.cssValue
+    };
+  }
+
+  function decorate(env, v, eff, decls, ro) {
+    if (ro.decorate !== false) {
+      const a = v.attrs;
+      const at = util.isPlainObject(eff.attrs) ? eff.attrs : {};
+      const classes = [];
+      if (typeof a.class === 'string' && a.class) classes.push(a.class);
+      if (env.mode === 'editor') classes.push('apb-node');
+      if (env.classFor) {
+        const c = env.classFor(eff);
+        if (typeof c === 'string' && c) classes.push(c);
+      }
+      if (typeof at.className === 'string' && at.className) {
+        const c = sanitize.className(at.className);
+        if (c) classes.push(c);
+      }
+      const cls = util.uniq(classes.join(' ').split(/\s+/).filter(Boolean)).join(' ');
+      if (cls) a.class = cls;
+      if (typeof at.htmlId === 'string' && at.htmlId) {
+        const id = sanitize.id(at.htmlId);
+        if (id) a.id = id;
+      }
+      if (typeof at.ariaLabel === 'string' && at.ariaLabel.trim()) a['aria-label'] = at.ariaLabel.trim();
+      if (typeof at.role === 'string' && /^[a-z]+(?: [a-z]+)*$/.test(at.role.trim())) a.role = at.role.trim();
+      if (typeof at.title === 'string' && at.title.trim()) a.title = at.title.trim();
+      if (env.withIds) a['data-node-id'] = eff.id;
+    }
+    if ((env.inlineStyles || ro.decorate === false) && decls.size) v.style = style.declsToObject(decls);
+  }
+
+  function buildNode(env, node, parentEff, scope, rootOpts) {
+    const ro = rootOpts || {};
+    const eff = scope.eff(node);
+    if (!eff) return null;
+    if (eff.hidden && !env.includeHidden) return null;
+    if (eff.type === 'instance') {
+      const exp = expandScope(env.doc, eff, env.bpId, scope);
+      if (exp) return buildNode(env, exp.root, parentEff, exp.scope, rootOpts);
+    }
+    const def = elements.get(eff.type);
+    let v = null;
+    if (def && eff.type !== 'instance') {
+      try {
+        v = def.vnode(eff, makeCtx(env, node, eff, scope));
+      } catch (err) {
+        if (typeof console !== 'undefined') console.error('[APB] vnode() of element type "' + eff.type + '" threw:', err);
+      }
+    }
+    if (!util.isPlainObject(v)) v = eff.type === 'instance' ? { tag: 'div', attrs: { 'data-component-missing': '' } } : { tag: 'div' };
+    v = Object.assign({}, v, { attrs: util.isPlainObject(v.attrs) ? Object.assign({}, v.attrs) : {} });
+    const decls = style.nodeDecls(env.doc, eff, env.bpId, {
+      mode: env.mode, parentEff, bp: env.bpDef, extra: v.style, assetURL: env.assetURL, effective: true, box: ro.box !== false
+    });
+    delete v.style;
+    const container = def ? def.container : Array.isArray(eff.children);
+    if (container && Array.isArray(eff.children)) {
+      const kids = [];
+      for (const cid of eff.children) {
+        const c = scope.get(cid);
+        if (!c) continue;
+        const cv = buildNode(env, c, eff, scope, null);
+        if (cv) kids.push(cv);
+      }
+      const slot = findSlot(v);
+      if (kids.length) {
+        slot.children = (Array.isArray(slot.children) ? slot.children : []).concat(kids);
+        delete slot.text;
+        delete slot.html;
+      }
+      slot.slot = true;
+    }
+    decorate(env, v, eff, decls, ro);
+    if (env.onNode) env.onNode({ id: eff.id, node: eff, parentEff, vnode: v, decls, virtual: !!scope.virtual, bp: env.bpId });
+    return v;
+  }
+
+  /**
+   * buildTree(doc, rootId, { bp, mode = 'export', classFor, withIds, includeHidden, sanitizeHTML,
+   *   assetURL, resolveURL, icon, onNode, inlineStyles, parentEff }) → VNode | null
+   */
+  function buildTree(doc, rootId, opts) {
+    const o = opts || {};
+    const root = schema.getNode(doc, rootId);
+    if (!root) return null;
+    const env = makeEnv(doc, o);
+    let parentEff = o.parentEff;
+    if (parentEff === undefined) parentEff = root.parent ? schema.effectiveNode(doc, root.parent, env.bpId) : null;
+    return buildNode(env, root, parentEff, docScope(env), null);
+  }
+
+  /**
+   * instanceVNode(doc, instanceNode, ctx) → VNode of the expanded master (root undecorated, root
+   * `style` = its non-box declarations) or null when the component is missing/cyclic.
+   */
+  function instanceVNode(doc, node, ctx) {
+    const c = ctx || {};
+    if (!node) return null;
+    const env = makeEnv(doc, {
+      mode: c.mode, bp: c.bp, withIds: c.withIds, includeHidden: c.includeHidden, classFor: c.classFor,
+      sanitizeHTML: c.sanitizeHTML, assetURL: c.assetURL, resolveURL: c.resolveURL, icon: c.icon
+    });
+    const inst = c.effective && c.effective.id === node.id ? c.effective : node;
+    const exp = expandScope(doc, inst, env.bpId, null);
+    if (!exp) return null;
+    return buildNode(env, exp.root, null, exp.scope, { box: false, decorate: false });
+  }
+
+  /** expandInstance(doc, instance|id, { bp }) → { root, component, nodes: { [id]: effectiveNode } } | null */
+  function expandInstance(doc, instOrId, opts) {
+    const node = schema.getNode(doc, instOrId);
+    if (!node || node.type !== 'instance') return null;
+    const bp = style.breakpoint(doc, opts && opts.bp);
+    const bpId = bp ? bp.id : undefined;
+    const inst = schema.effectiveNode(doc, node, bpId);
+    const exp = expandScope(doc, inst, bpId, null);
+    if (!exp) return null;
+    const nodes = {};
+    for (const [id, e] of exp.entries) nodes[id] = exp.scope.eff(e.node);
+    return { root: inst.id, component: inst.props.component, nodes };
+  }
+
+  return { toHTML, toDOM, patch, buildTree, instanceVNode, expandInstance, collectAttrs, styleString, tagName, VOID };
+});
 </script>
 <script data-src="js/core/snapping.js">
-/* stub — owned by A2 */
+/* @node-testable */
+/*
+ * snapping — pure snap engine for moving and resizing rects (ARCHITECTURE.md §6.10).
+ *
+ * All rects are axis-aligned { x, y, w, h } in one coordinate space (the caller passes rotated
+ * nodes as their AABB). `threshold` is in the same units (document px; the caller divides screen
+ * px by the zoom). Candidates per axis are sorted once and queried by binary search, so a move
+ * against n siblings costs O(n log n).
+ *
+ * Guides: { axis, pos, from, to, kind } — axis 'x' is a vertical line at x = pos spanning
+ * y ∈ [from, to]; axis 'y' is a horizontal line at y = pos spanning x ∈ [from, to].
+ * Spacing: { axis, a, b, gap, from, to, pos } — axis 'x' is a horizontal gap between rect a (left)
+ * and rect b (right) from x = from to x = to, drawn at y = pos (and vice versa for 'y').
+ */
+APB.define('snapping', [], function () {
+  'use strict';
+
+  const EPS = 0.01;          // coincidence tolerance for guides after snapping
+  const GAP_EPS = 0.5;       // tolerance when listing existing equal gaps
+  const PRIORITY = { edge: 0, center: 0, parent: 1, spacing: 2, grid: 3 };
+  const AXES = {
+    x: { p: 'x', s: 'w', q: 'y', t: 'h' },
+    y: { p: 'y', s: 'h', q: 'x', t: 'w' }
+  };
+
+  const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
+  const num = (v, d) => (isNum(v) ? v : d);
+
+  function validRect(r) {
+    return !!r && isNum(r.x) && isNum(r.y) && isNum(r.w) && isNum(r.h);
+  }
+
+  function normRect(r) {
+    let { x, y, w, h } = r;
+    if (w < 0) { x += w; w = -w; }
+    if (h < 0) { y += h; h = -h; }
+    return { x, y, w, h };
+  }
+
+  function normalizeOthers(list) {
+    const others = [];
+    if (Array.isArray(list)) for (const r of list) if (validRect(r)) others.push(normRect(r));
+    return others;
+  }
+
+  function readOptions(o) {
+    const idx = o.index && o.index.__snapIndex ? o.index : null;
+    const others = idx ? idx.others : normalizeOthers(o.others);
+    const gridSize = o.grid && num(o.gridSize, 0) > 0 ? o.gridSize : 0;
+    const go = o.gridOrigin && typeof o.gridOrigin === 'object' ? o.gridOrigin : {};
+    return {
+      threshold: Math.max(0, num(o.threshold, 6)),
+      objects: o.objects !== false,
+      others,
+      index: idx,
+      parent: idx ? idx.parent : (validRect(o.parent) ? normRect(o.parent) : null),
+      gridSize,
+      gridOrigin: { x: num(go.x, 0), y: num(go.y, 0) }
+    };
+  }
+
+  /* ------------------------------------------------------------ candidates */
+
+  /** Sorted snap lines for one axis: sibling edges/centers and parent edges/center. */
+  function buildCandidates(axis, cfg) {
+    if (!cfg.objects) return [];
+    if (cfg.index) return cfg.index[axis];
+    return sortedCandidates(axis, cfg.others, cfg.parent);
+  }
+
+  function sortedCandidates(axis, others, parent) {
+    const A = AXES[axis];
+    const list = [];
+    for (const r of others) {
+      list.push({ v: r[A.p], kind: 'edge', rect: r });
+      list.push({ v: r[A.p] + r[A.s] / 2, kind: 'center', rect: r });
+      list.push({ v: r[A.p] + r[A.s], kind: 'edge', rect: r });
+    }
+    const pr = parent;
+    if (pr) {
+      list.push({ v: pr[A.p], kind: 'parent', rect: pr });
+      list.push({ v: pr[A.p] + pr[A.s] / 2, kind: 'parent', rect: pr });
+      list.push({ v: pr[A.p] + pr[A.s], kind: 'parent', rect: pr });
+    }
+    list.sort((a, b) => a.v - b.v);
+    return list;
+  }
+
+  /** First index whose value is >= v. */
+  function lowerBound(list, v, key) {
+    let lo = 0;
+    let hi = list.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      const mv = key ? list[mid][key] : list[mid];
+      if (mv < v) lo = mid + 1; else hi = mid;
+    }
+    return lo;
+  }
+
+  /** Nearest candidate to value within thr → { d, ad, kind } | null. */
+  function nearest(list, value, thr) {
+    let best = null;
+    for (let i = lowerBound(list, value - thr, 'v'); i < list.length && list[i].v <= value + thr; i++) {
+      const c = list[i];
+      const d = c.v - value;
+      const ad = Math.abs(d);
+      if (!best || ad < best.ad - 1e-9 || (Math.abs(ad - best.ad) <= 1e-9 && PRIORITY[c.kind] < PRIORITY[best.kind])) {
+        best = { d, ad, kind: c.kind };
+      }
+    }
+    return best;
+  }
+
+  function matchesAt(list, value, eps) {
+    const out = [];
+    for (let i = lowerBound(list, value - eps, 'v'); i < list.length && list[i].v <= value + eps; i++) out.push(list[i]);
+    return out;
+  }
+
+  function gridLine(v, size, origin) {
+    return origin + Math.round((v - origin) / size) * size;
+  }
+
+  function better(cand, best) {
+    if (!best) return true;
+    if (cand.ad < best.ad - 1e-9) return true;
+    return Math.abs(cand.ad - best.ad) <= 1e-9 && PRIORITY[cand.kind] < PRIORITY[best.kind];
+  }
+
+  /* -------------------------------------------------------- equal spacing */
+
+  /** Others overlapping `rect` on the cross axis (the "row" for axis x, the "column" for axis y). */
+  function lineNeighbours(axis, rect, others) {
+    const A = AXES[axis];
+    const lo = rect[A.q];
+    const hi = rect[A.q] + rect[A.t];
+    const out = [];
+    for (const r of others) if (r[A.q] < hi && r[A.q] + r[A.t] > lo) out.push(r);
+    return out;
+  }
+
+  /** Gaps between consecutive non-overlapping neighbours, sorted by start. */
+  function gapPairs(axis, row) {
+    const A = AXES[axis];
+    const sorted = row.slice().sort((a, b) => a[A.p] - b[A.p]);
+    const pairs = [];
+    let prev = null;
+    for (const r of sorted) {
+      if (prev) {
+        const gap = r[A.p] - (prev[A.p] + prev[A.s]);
+        if (gap > EPS) pairs.push({ a: prev, b: r, gap });
+      }
+      if (!prev || r[A.p] + r[A.s] > prev[A.p] + prev[A.s]) prev = r;
+    }
+    return pairs;
+  }
+
+  function nearestNeighbours(axis, rect, row, tol) {
+    const A = AXES[axis];
+    const start = rect[A.p];
+    const end = start + rect[A.s];
+    let L = null;
+    let R = null;
+    for (const r of row) {
+      const rs = r[A.p];
+      const re = rs + r[A.s];
+      if (re <= start + tol && rs < start && (!L || re > L[A.p] + L[A.s])) L = r;
+      if (rs >= end - tol && re > end && (!R || rs < R[A.p])) R = r;
+    }
+    return { L, R };
+  }
+
+  /**
+   * Equal-spacing snap along one axis → { d, ad, kind: 'spacing', gap } | null.
+   * Cases: centre the rect between its nearest neighbours, or continue an existing gap after the
+   * left neighbour / before the right neighbour.
+   */
+  function spacingSnap(axis, rect, others, thr) {
+    const A = AXES[axis];
+    const row = lineNeighbours(axis, rect, others);
+    if (!row.length) return null;
+    const start = rect[A.p];
+    const size = rect[A.s];
+    const end = start + size;
+    const { L, R } = nearestNeighbours(axis, rect, row, thr);
+    const lEnd = L ? L[A.p] + L[A.s] : -Infinity;
+    const rStart = R ? R[A.p] : Infinity;
+    let best = null;
+    const consider = (d, gap) => {
+      const c = { d, ad: Math.abs(d), kind: 'spacing', gap };
+      if (c.ad <= thr && gap > EPS && (!best || c.ad < best.ad - 1e-9)) best = c;
+    };
+    if (L && R) {
+      const gap = (rStart - lEnd - size) / 2;
+      consider(lEnd + gap - start, gap);
+    }
+    if (L || R) {
+      // Existing gaps whose interval does not contain the moving rect.
+      const gaps = gapPairs(axis, row)
+        .filter((p) => !(p.a[A.p] + p.a[A.s] < end && p.b[A.p] > start))
+        .map((p) => p.gap)
+        .sort((a, b) => a - b);
+      if (gaps.length) {
+        if (L) {
+          const want = start - lEnd; // gap that would leave the rect where it is
+          for (let i = lowerBound(gaps, want - thr); i < gaps.length && gaps[i] <= want + thr; i++) {
+            const g = gaps[i];
+            if (lEnd + g + size <= rStart + EPS) consider(lEnd + g - start, g);
+          }
+        }
+        if (R) {
+          const want = rStart - end;
+          for (let i = lowerBound(gaps, want - thr); i < gaps.length && gaps[i] <= want + thr; i++) {
+            const g = gaps[i];
+            if (rStart - g - size >= lEnd - EPS) consider(rStart - g - size - start, g);
+          }
+        }
+      }
+    }
+    return best;
+  }
+
+  function spacingSegment(axis, a, b, gap) {
+    const A = AXES[axis];
+    const lo = Math.max(a[A.q], b[A.q]);
+    const hi = Math.min(a[A.q] + a[A.t], b[A.q] + b[A.t]);
+    const pos = hi >= lo ? (lo + hi) / 2 : (Math.min(a[A.q], b[A.q]) + Math.max(a[A.q] + a[A.t], b[A.q] + b[A.t])) / 2;
+    return { axis, a, b, gap, from: a[A.p] + a[A.s], to: b[A.p], pos };
+  }
+
+  /** Spacing segments equal to `gap` around the (snapped) rect and among its neighbours. */
+  function spacingSegments(axis, rect, others, gap) {
+    const A = AXES[axis];
+    const row = lineNeighbours(axis, rect, others);
+    const out = [];
+    const { L, R } = nearestNeighbours(axis, rect, row, EPS);
+    if (L && Math.abs(rect[A.p] - (L[A.p] + L[A.s]) - gap) <= GAP_EPS) out.push(spacingSegment(axis, L, rect, gap));
+    if (R && Math.abs(R[A.p] - (rect[A.p] + rect[A.s]) - gap) <= GAP_EPS) out.push(spacingSegment(axis, rect, R, gap));
+    for (const p of gapPairs(axis, row)) {
+      if (Math.abs(p.gap - gap) > GAP_EPS) continue;
+      if (p.a[A.p] + p.a[A.s] < rect[A.p] + rect[A.s] && p.b[A.p] > rect[A.p]) continue; // spans the rect
+      out.push(spacingSegment(axis, p.a, p.b, p.gap));
+    }
+    return out;
+  }
+
+  /* ----------------------------------------------------------------- guides */
+
+  function crossExtent(axis, rects) {
+    const A = AXES[axis];
+    let from = Infinity;
+    let to = -Infinity;
+    for (const r of rects) {
+      if (r[A.q] < from) from = r[A.q];
+      if (r[A.q] + r[A.t] > to) to = r[A.q] + r[A.t];
+    }
+    return { from, to };
+  }
+
+  /**
+   * Guides for the given positions of the snapped rect on one axis: every candidate line that
+   * coincides with a position, merged per (pos, kind).
+   */
+  function collectGuides(axis, rect, positions, cands, extra) {
+    const map = new Map();
+    for (const pos of positions) {
+      for (const c of matchesAt(cands, pos, EPS)) {
+        const key = c.kind + ':' + Math.round(c.v * 100);
+        let g = map.get(key);
+        if (!g) { g = { axis, pos: c.v, kind: c.kind, rects: [rect] }; map.set(key, g); }
+        g.rects.push(c.rect);
+      }
+    }
+    const out = [];
+    for (const g of map.values()) {
+      const ext = crossExtent(axis, g.rects);
+      out.push({ axis, pos: g.pos, from: ext.from, to: ext.to, kind: g.kind });
+    }
+    if (extra) out.push(extra);
+    out.sort((a, b) => a.pos - b.pos || (a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0));
+    return out;
+  }
+
+  function gridGuide(axis, rect, pos, parent) {
+    const ext = crossExtent(axis, parent ? [rect, parent] : [rect]);
+    return { axis, pos, from: ext.from, to: ext.to, kind: 'grid' };
+  }
+
+  /* ------------------------------------------------------------------- move */
+
+  /**
+   * snapMove({ rect, others, parent, grid, gridSize, gridOrigin, threshold, objects })
+   *   → { dx, dy, guides, spacing, snapped: { x: kind|null, y: kind|null } }
+   * Snaps left/center/right (top/middle/bottom) of rect to sibling lines, parent edges/center,
+   * equal gaps between siblings and the grid; the closest candidate per axis wins (ties prefer
+   * object alignment over parent, spacing and grid).
+   */
+  function snapMove(opts) {
+    const o = opts || {};
+    const result = { dx: 0, dy: 0, guides: [], spacing: [], snapped: { x: null, y: null } };
+    if (!validRect(o.rect)) return result;
+    const rect = normRect(o.rect);
+    const cfg = readOptions(o);
+    const thr = cfg.threshold;
+    if (!(thr > 0)) return result;
+
+    const perAxis = {};
+    for (const axis of ['x', 'y']) {
+      const A = AXES[axis];
+      const cands = buildCandidates(axis, cfg);
+      const start = rect[A.p];
+      const size = rect[A.s];
+      const anchors = size > 0 ? [start, start + size / 2, start + size] : [start];
+      let best = null;
+      for (const a of anchors) {
+        const n = nearest(cands, a, thr);
+        if (n && better(n, best)) best = n;
+      }
+      let gridPos = null;
+      if (cfg.gridSize) {
+        for (const a of size > 0 ? [start, start + size] : [start]) {
+          const line = gridLine(a, cfg.gridSize, cfg.gridOrigin[axis]);
+          const c = { d: line - a, ad: Math.abs(line - a), kind: 'grid' };
+          if (c.ad <= thr && better(c, best)) { best = c; gridPos = line; }
+        }
+      }
+      let spacing = null;
+      if (cfg.objects && size > 0) {
+        spacing = spacingSnap(axis, rect, cfg.others, thr);
+        if (spacing && better(spacing, best)) { best = spacing; gridPos = null; }
+      }
+      if (best && best.kind !== 'grid') gridPos = null;
+      perAxis[axis] = { cands, best, spacing, gridPos };
+      if (best) {
+        result['d' + axis] = best.d;
+        result.snapped[axis] = best.kind;
+      }
+    }
+
+    const moved = { x: rect.x + result.dx, y: rect.y + result.dy, w: rect.w, h: rect.h };
+    for (const axis of ['x', 'y']) {
+      const info = perAxis[axis];
+      if (!info.best) continue;
+      const A = AXES[axis];
+      const start = moved[A.p];
+      const positions = moved[A.s] > 0 ? [start, start + moved[A.s] / 2, start + moved[A.s]] : [start];
+      const extra = info.gridPos !== null ? gridGuide(axis, moved, info.gridPos, cfg.parent) : null;
+      result.guides.push.apply(result.guides, collectGuides(axis, moved, positions, info.cands, extra));
+      if (info.spacing && Math.abs(info.spacing.d - info.best.d) <= EPS) {
+        result.spacing.push.apply(result.spacing, spacingSegments(axis, moved, cfg.others, info.spacing.gap));
+      }
+    }
+    return result;
+  }
+
+  /** snapPoint({ point, others, parent, grid, gridSize, threshold }) → { x, y, guides } (drawing tools). */
+  function snapPoint(opts) {
+    const o = opts || {};
+    const p = o.point || {};
+    if (!isNum(p.x) || !isNum(p.y)) return { x: p.x, y: p.y, guides: [] };
+    const r = snapMove(Object.assign({}, o, { rect: { x: p.x, y: p.y, w: 0, h: 0 } }));
+    return { x: p.x + r.dx, y: p.y + r.dy, guides: r.guides };
+  }
+
+  /* ----------------------------------------------------------------- resize */
+
+  /**
+   * snapResize({ rect, handle, others, parent, grid, gridSize, gridOrigin, threshold, objects,
+   *              keepAspect, fromCenter, minW = 1, minH = 1 }) → { rect, guides, snapped }
+   * `rect` is the proposed (already resized) rect; the edges moved by `handle` (n s e w ne nw se sw)
+   * snap to sibling/parent lines and the grid. With keepAspect only the closer axis snaps and the
+   * other dimension follows the aspect ratio (anchored like geometry.resize).
+   */
+  function snapResize(opts) {
+    const o = opts || {};
+    if (!validRect(o.rect)) return { rect: o.rect ? Object.assign({}, o.rect) : null, guides: [], snapped: { x: null, y: null } };
+    const rect = normRect(o.rect);
+    const cfg = readOptions(o);
+    const thr = cfg.threshold;
+    const handle = String(o.handle || '');
+    const fromCenter = !!o.fromCenter;
+    const mins = { x: Math.max(0, num(o.minW, 1)), y: Math.max(0, num(o.minH, 1)) };
+    const moving = {
+      x: handle.includes('e') ? 'end' : handle.includes('w') ? 'start' : null,
+      y: handle.includes('s') ? 'end' : handle.includes('n') ? 'start' : null
+    };
+    const out = { rect: Object.assign({}, rect), guides: [], snapped: { x: null, y: null } };
+    if (!(thr > 0) || (!moving.x && !moving.y)) return out;
+
+    const found = {};
+    for (const axis of ['x', 'y']) {
+      if (!moving[axis]) continue;
+      const A = AXES[axis];
+      const cands = buildCandidates(axis, cfg);
+      const edge = moving[axis] === 'end' ? rect[A.p] + rect[A.s] : rect[A.p];
+      let best = nearest(cands, edge, thr);
+      let gridPos = null;
+      if (cfg.gridSize) {
+        const line = gridLine(edge, cfg.gridSize, cfg.gridOrigin[axis]);
+        const c = { d: line - edge, ad: Math.abs(line - edge), kind: 'grid' };
+        if (c.ad <= thr && better(c, best)) { best = c; gridPos = line; }
+      }
+      if (best) {
+        // Reject snaps that would violate the minimum size.
+        const k = fromCenter ? 2 : 1;
+        const newSize = moving[axis] === 'end' ? rect[A.s] + best.d * k : rect[A.s] - best.d * k;
+        if (newSize < mins[axis]) best = null;
+      }
+      if (best) found[axis] = { best, cands, gridPos: best.kind === 'grid' ? gridPos : null };
+    }
+
+    const apply = (r, axis, d) => {
+      const A = AXES[axis];
+      const k = fromCenter ? 2 : 1;
+      if (moving[axis] === 'end') {
+        r[A.s] = rect[A.s] + d * k;
+        if (fromCenter) r[A.p] = rect[A.p] - d;
+      } else {
+        r[A.p] = rect[A.p] + d;
+        r[A.s] = rect[A.s] - d * k;
+      }
+    };
+
+    const r = Object.assign({}, rect);
+    let axes = Object.keys(found);
+    if (o.keepAspect && rect.w > 0 && rect.h > 0 && axes.length) {
+      const ratio = rect.w / rect.h;
+      const axis = axes.length === 2 ? (found.x.best.ad <= found.y.best.ad ? 'x' : 'y') : axes[0];
+      axes = [axis];
+      apply(r, axis, found[axis].best.d);
+      const other = axis === 'x' ? 'y' : 'x';
+      const O = AXES[other];
+      const newSize = axis === 'x' ? r.w / ratio : r.h * ratio;
+      if (fromCenter || !moving[other]) {
+        r[O.p] = rect[O.p] + rect[O.s] / 2 - newSize / 2;
+      } else if (moving[other] === 'start') {
+        r[O.p] = rect[O.p] + rect[O.s] - newSize;
+      } else {
+        r[O.p] = rect[O.p];
+      }
+      r[O.s] = newSize;
+    } else {
+      for (const axis of axes) apply(r, axis, found[axis].best.d);
+    }
+
+    out.rect = r;
+    for (const axis of axes) {
+      const A = AXES[axis];
+      const info = found[axis];
+      const edge = moving[axis] === 'end' ? r[A.p] + r[A.s] : r[A.p];
+      const positions = fromCenter ? [r[A.p], r[A.p] + r[A.s]] : [edge];
+      const extra = info.gridPos !== null ? gridGuide(axis, r, info.gridPos, cfg.parent) : null;
+      out.guides.push.apply(out.guides, collectGuides(axis, r, positions, info.cands, extra));
+      out.snapped[axis] = info.best.kind;
+    }
+    return out;
+  }
+
+  /**
+   * createIndex({ others, parent }) → reusable index for repeated snaps against the same siblings
+   * (e.g. every frame of a drag): pass it as `index` instead of `others`/`parent`.
+   */
+  function createIndex(opts) {
+    const o = opts || {};
+    const others = normalizeOthers(o.others);
+    const parent = validRect(o.parent) ? normRect(o.parent) : null;
+    return { __snapIndex: true, others, parent, x: sortedCandidates('x', others, parent), y: sortedCandidates('y', others, parent) };
+  }
+
+  return { snapMove, snapResize, snapPoint, createIndex, EPS };
+});
 </script>
 <script data-src="js/core/docops.js">
-/* stub — owned by A2 */
+/* @node-testable */
+/*
+ * docops — high-level document operations (ARCHITECTURE.md §6.11). Every public operation is ONE
+ * labelled store transaction (so one undo step) and accepts the `app` or a `store` as first arg.
+ *
+ * Coordinates: a node's x/y are relative to its parent's (unrotated) local frame; rotation turns a
+ * node around its own center. World (page) placement is computed by composing ancestor frames.
+ * Children of stack parents are placed by an approximate flow layout (or by the canvas renderer's
+ * worldRect when the first argument is an app with a mounted canvas and the doc is unchanged).
+ *
+ * Breakpoints: geometric/visibility writes (move, setBox, update, align, distribute, tidy, radial,
+ * matchSize, setHidden, fitGroup) default to `store.view.bp` (so edits on a non-base breakpoint
+ * become overrides); pass { bp } to force one. Structural ops (insert, remove, duplicate, reparent,
+ * group, ungroup, wrap, components) work on base values.
+ */
+APB.define('docops', ['util', 'geometry', 'schema'], function (util, geometry, schema) {
+  'use strict';
+
+  const BOX_KEYS = ['x', 'y', 'w', 'h', 'rotation'];
+  const PATCH_BLOCKED = new Set(['id', 'parent', 'children', 'type']);
+  const TEXTY = new Set(['text', 'list', 'html', 'table']);
+  const ALIGN_LABELS = {
+    left: 'Align left', hcenter: 'Align horizontal centers', right: 'Align right',
+    top: 'Align top', vcenter: 'Align vertical centers', bottom: 'Align bottom'
+  };
+  const ZORDER_LABELS = { forward: 'Bring forward', backward: 'Send backward', front: 'Bring to front', back: 'Send to back' };
+
+  const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
+  const num = (v, d) => (isNum(v) ? v : d);
+  const has = (obj, k) => !!obj && Object.prototype.hasOwnProperty.call(obj, k);
+
+  function rnd(v) {
+    const r = Math.round(v * 1000) / 1000;
+    return Object.is(r, -0) ? 0 : r;
+  }
+
+  function near(a, b, eps) {
+    return Math.abs(a - b) <= (eps === undefined ? 1e-6 : eps);
+  }
+
+  function rotV(v, deg) {
+    return geometry.rotateVector(v, deg || 0);
+  }
+
+  function normAngle(deg) {
+    return rnd(geometry.normalizeAngle(deg || 0));
+  }
+
+  /* ---------------------------------------------------------------- basics */
+
+  function resolve(target) {
+    if (target && typeof target.transact === 'function') return { store: target, app: null };
+    if (target && target.store && typeof target.store.transact === 'function') return { store: target.store, app: target };
+    throw new TypeError('docops: first argument must be the app or a store');
+  }
+
+  function baseBpId(doc) {
+    const bps = doc.settings && doc.settings.breakpoints;
+    return bps && bps.length ? bps[0].id : null;
+  }
+
+  /** Breakpoint for geometric writes: explicit opts.bp, else the active view breakpoint. */
+  function bpFor(store, opts) {
+    if (opts && opts.bp !== undefined) return opts.bp || null;
+    return (store.view && store.view.bp) || null;
+  }
+
+  function toArray(ids) {
+    if (ids === undefined || ids === null) return [];
+    return Array.isArray(ids) ? ids : [ids];
+  }
+
+  function nodeOf(doc, id) {
+    return typeof id === 'string' && has(doc.nodes, id) ? doc.nodes[id] : null;
+  }
+
+  function isRoot(doc, id) {
+    const n = nodeOf(doc, id);
+    return !!n && !n.parent;
+  }
+
+  function existing(doc, ids) {
+    const seen = new Set();
+    const out = [];
+    for (const id of toArray(ids)) {
+      if (seen.has(id) || !nodeOf(doc, id)) continue;
+      seen.add(id);
+      out.push(id);
+    }
+    return out;
+  }
+
+  /** Existing, non-root ids whose ancestors are not also in the list. */
+  function topLevel(doc, ids) {
+    const list = existing(doc, ids).filter((id) => !isRoot(doc, id));
+    const set = new Set(list);
+    return list.filter((id) => !schema.ancestors(doc, id).some((a) => set.has(a)));
+  }
+
+  function orderKey(doc, id) {
+    const key = [];
+    let n = nodeOf(doc, id);
+    const seen = new Set();
+    while (n && n.parent && !seen.has(n.id)) {
+      seen.add(n.id);
+      const p = nodeOf(doc, n.parent);
+      key.unshift(p && Array.isArray(p.children) ? p.children.indexOf(n.id) : 0);
+      n = p;
+    }
+    const pageIdx = doc.pages.findIndex((pg) => n && pg.root === n.id);
+    key.unshift(pageIdx < 0 ? doc.pages.length : pageIdx);
+    return key;
+  }
+
+  /** Sort ids in document (paint) order. */
+  function sortDocOrder(doc, ids) {
+    const keys = new Map(ids.map((id) => [id, orderKey(doc, id)]));
+    return ids.slice().sort((a, b) => {
+      const ka = keys.get(a);
+      const kb = keys.get(b);
+      for (let i = 0; i < Math.min(ka.length, kb.length); i++) if (ka[i] !== kb[i]) return ka[i] - kb[i];
+      return ka.length - kb.length;
+    });
+  }
+
+  function isLocked(doc, id) {
+    let n = nodeOf(doc, id);
+    const seen = new Set();
+    while (n && !seen.has(n.id)) {
+      if (n.locked) return true;
+      seen.add(n.id);
+      n = n.parent ? nodeOf(doc, n.parent) : null;
+    }
+    return false;
+  }
+
+  function isContainerNode(n) {
+    return !!n && Array.isArray(n.children);
+  }
+
+  function parentIsStack(doc, id, bp) {
+    const n = nodeOf(doc, id);
+    if (!n || !n.parent) return false;
+    const p = schema.effectiveNode(doc, n.parent, bp);
+    return !!(p && p.layout && p.layout.mode === 'stack');
+  }
+
+  function layerLabel(verb, n) {
+    return verb + ' ' + (n === 1 ? 'layer' : util.plural(n, 'layer'));
+  }
+
+  function typeLabel(type) {
+    if (typeof APB !== 'undefined' && APB.has('elements')) {
+      try {
+        const def = APB.require('elements').get(type);
+        if (def && def.label) return def.label;
+      } catch (_) { /* fall through */ }
+    }
+    const t = String(type || 'layer');
+    return t.charAt(0).toUpperCase() + t.slice(1);
+  }
+
+  function siblingNames(doc, parentId) {
+    const p = nodeOf(doc, parentId);
+    return new Set(p && Array.isArray(p.children) ? p.children.map((c) => nodeOf(doc, c)).filter(Boolean).map((c) => c.name) : []);
+  }
+
+  function currentPage(doc, store) {
+    const view = store.view || {};
+    return doc.pages.find((p) => p.id === view.pageId) || doc.pages[0] || null;
+  }
+
+  /** Default insertion parent: sections go into the page root; others into the view context or first section. */
+  function defaultParent(doc, store, type) {
+    const page = currentPage(doc, store);
+    const root = page ? page.root : null;
+    if (type === 'section') return root;
+    const view = store.view || {};
+    const ctxNode = nodeOf(doc, view.context);
+    if (ctxNode && isContainerNode(ctxNode)) return ctxNode.id;
+    const rootNode = nodeOf(doc, root);
+    if (rootNode && Array.isArray(rootNode.children)) {
+      const sec = rootNode.children.map((c) => nodeOf(doc, c)).find((n) => n && n.type === 'section' && isContainerNode(n));
+      if (sec) return sec.id;
+    }
+    return root;
+  }
+
+  /* -------------------------------------------------------------- geometry */
+
+  function domHook(c, doc, bp) {
+    const app = c.app;
+    const renderer = app && app.canvas && app.canvas.renderer;
+    if (!renderer || typeof renderer.worldRect !== 'function') return null;
+    if (doc !== c.store.doc) return null;
+    const viewBp = (c.store.view && c.store.view.bp) || baseBpId(doc);
+    if ((bp || baseBpId(doc)) !== viewBp) return null;
+    return (id) => {
+      try {
+        const r = renderer.worldRect(id);
+        return r && isNum(r.x) && isNum(r.y) && isNum(r.w) && isNum(r.h) ? r : null;
+      } catch (_) {
+        return null;
+      }
+    };
+  }
+
+  /**
+   * Geometry view of a doc snapshot at a breakpoint (memoized; create a new one after structural
+   * changes). World boxes are { cx, cy, w, h, rotation }; frames are { x, y, rot } (origin of a
+   * container's local coordinate system in world space).
+   */
+  function makeGeo(doc, bp, dom) {
+    const local = new Map();
+    const frames = new Map();
+    const eff = (id) => schema.effectiveNode(doc, id, bp);
+
+    function bpWidth() {
+      const bps = (doc.settings && doc.settings.breakpoints) || [];
+      const b = bps.find((x) => x.id === bp) || bps[0];
+      return b ? b.width : 1440;
+    }
+
+    function stackPlacement(p, id) {
+      const L = p.layout;
+      const pad = schema.normalizePad(L.pad);
+      const row = L.dir === 'row';
+      const pbox = localBox(p.id);
+      const innerMain = Math.max(0, row ? pbox.w - pad[1] - pad[3] : pbox.h - pad[0] - pad[2]);
+      const innerCross = Math.max(0, row ? pbox.h - pad[0] - pad[2] : pbox.w - pad[1] - pad[3]);
+      const kids = (p.children || []).map(eff).filter((k) => k && !k.hidden);
+      const gap = num(L.gap, 0);
+      const psz = p.sizing || {};
+      const hugMain = (row ? psz.w : psz.h) === 'hug';
+      const items = kids.map((k) => {
+        const sz = k.sizing || {};
+        const mainMode = row ? sz.w : sz.h;
+        const crossMode = row ? sz.h : sz.w;
+        let main = num(row ? k.w : k.h, 0);
+        let cross = num(row ? k.h : k.w, 0);
+        if (k.type === 'page' && !row) cross = bpWidth();
+        if (crossMode === 'fill' || (L.align === 'stretch' && crossMode === 'hug')) cross = innerCross;
+        return { id: k.id, main, cross, fill: mainMode === 'fill' && !hugMain };
+      });
+      const fills = items.filter((it) => it.fill);
+      const fixedTotal = items.filter((it) => !it.fill).reduce((s, it) => s + it.main, 0) + gap * Math.max(0, items.length - 1);
+      if (fills.length) {
+        const each = Math.max(0, (innerMain - fixedTotal) / fills.length);
+        fills.forEach((it) => { it.main = each; });
+      }
+      const total = items.reduce((s, it) => s + it.main, 0) + gap * Math.max(0, items.length - 1);
+      const free = hugMain ? 0 : innerMain - total;
+      let offset = 0;
+      let spacing = gap;
+      if (free > 0 && !fills.length) {
+        if (L.justify === 'center') offset = free / 2;
+        else if (L.justify === 'end') offset = free;
+        else if (L.justify === 'between' && items.length > 1) spacing = gap + free / (items.length - 1);
+        else if (L.justify === 'around' && items.length) { const extra = free / items.length; offset = extra / 2; spacing = gap + extra; }
+      }
+      const mainStart = row ? pad[3] : pad[0];
+      const crossStart = row ? pad[0] : pad[3];
+      let acc = mainStart + offset;
+      for (const it of items) {
+        if (it.id === id) {
+          let crossPos = crossStart;
+          if (L.align === 'center') crossPos += (innerCross - it.cross) / 2;
+          else if (L.align === 'end') crossPos += innerCross - it.cross;
+          return row ? { x: acc, y: crossPos, w: it.main, h: it.cross } : { x: crossPos, y: acc, w: it.cross, h: it.main };
+        }
+        acc += it.main + spacing;
+      }
+      const n = eff(id);
+      return { x: row ? mainStart : crossStart, y: row ? crossStart : mainStart, w: num(n && n.w, 0), h: num(n && n.h, 0) };
+    }
+
+    /** Node box in its parent's local frame: { x, y, w, h, rotation }. */
+    function localBox(id) {
+      if (local.has(id)) return local.get(id);
+      const n = eff(id);
+      let box;
+      if (!n) {
+        box = { x: 0, y: 0, w: 0, h: 0, rotation: 0 };
+      } else {
+        const p = n.parent ? eff(n.parent) : null;
+        const w = n.type === 'page' ? bpWidth() : num(n.w, 0);
+        box = { x: num(n.x, 0), y: num(n.y, 0), w, h: num(n.h, 0), rotation: num(n.rotation, 0) };
+        if (!p) {
+          if (n.type === 'page') { box.x = 0; box.y = 0; }
+        } else if (p.layout && p.layout.mode === 'stack') {
+          local.set(id, box); // provisional (guards against cycles)
+          const r = dom ? dom(id) : null;
+          if (r) {
+            const F = frame(p.id);
+            const lc = rotV({ x: r.x + r.w / 2 - F.x, y: r.y + r.h / 2 - F.y }, -F.rot);
+            box = { x: lc.x - r.w / 2, y: lc.y - r.h / 2, w: r.w, h: r.h, rotation: 0 };
+          } else {
+            const s = stackPlacement(p, id);
+            box = { x: s.x, y: s.y, w: s.w, h: s.h, rotation: num(n.rotation, 0) };
+          }
+        } else {
+          const sz = n.sizing || {};
+          if (sz.w === 'fill') { const pb = localBox(p.id); box.x = 0; box.w = pb.w; }
+          if (sz.h === 'fill') { const pb = localBox(p.id); box.y = 0; box.h = pb.h; }
+        }
+      }
+      local.set(id, box);
+      return box;
+    }
+
+    /** World box of a node. */
+    function world(id) {
+      const n = nodeOf(doc, id);
+      const lb = localBox(id);
+      const F = n && n.parent ? frame(n.parent) : { x: 0, y: 0, rot: 0 };
+      const c = rotV({ x: lb.x + lb.w / 2, y: lb.y + lb.h / 2 }, F.rot);
+      return { cx: F.x + c.x, cy: F.y + c.y, w: lb.w, h: lb.h, rotation: F.rot + lb.rotation };
+    }
+
+    /** Frame (origin + rotation) of a container's local coordinate system in world space. */
+    function frame(id) {
+      if (!id) return { x: 0, y: 0, rot: 0 };
+      if (frames.has(id)) return frames.get(id);
+      frames.set(id, { x: 0, y: 0, rot: 0 }); // provisional (cycle guard)
+      const wb = world(id);
+      const o = rotV({ x: -wb.w / 2, y: -wb.h / 2 }, wb.rotation);
+      const f = { x: wb.cx + o.x, y: wb.cy + o.y, rot: wb.rotation };
+      frames.set(id, f);
+      return f;
+    }
+
+    function worldAABB(id) {
+      const wb = world(id);
+      return geometry.aabb(geometry.corners({ x: wb.cx - wb.w / 2, y: wb.cy - wb.h / 2, w: wb.w, h: wb.h }, wb.rotation));
+    }
+
+    /** AABB of a node inside its parent's local frame. */
+    function parentAABB(id) {
+      const lb = localBox(id);
+      return geometry.aabb(geometry.corners(lb, lb.rotation));
+    }
+
+    return { eff, localBox, world, frame, worldAABB, parentAABB, bpWidth };
+  }
+
+  /** World box → local { x, y, w, h, rotation } in a frame. */
+  function localFromWorld(F, wb) {
+    const lc = rotV({ x: wb.cx - F.x, y: wb.cy - F.y }, -F.rot);
+    return { x: lc.x - wb.w / 2, y: lc.y - wb.h / 2, w: wb.w, h: wb.h, rotation: normAngle(wb.rotation - F.rot) };
+  }
+
+  /* ------------------------------------------------------- tx-level helpers */
+
+  function shiftBpOverrides(tx, id, dx, dy) {
+    const n = tx.node(id);
+    if (!n || !util.isPlainObject(n.bp)) return;
+    for (const bpId of Object.keys(n.bp)) {
+      const o = n.bp[bpId];
+      if (!util.isPlainObject(o)) continue;
+      if (isNum(o.x) && dx) tx.set(['nodes', id, 'bp', bpId, 'x'], rnd(o.x + dx));
+      if (isNum(o.y) && dy) tx.set(['nodes', id, 'bp', bpId, 'y'], rnd(o.y + dy));
+    }
+  }
+
+  /** Clear the style a type's defaults may have added (wrappers must not change visuals). */
+  function clearStyle(tx, id) {
+    const n = tx.node(id);
+    if (n && util.isPlainObject(n.style) && Object.keys(n.style).length) tx.set(['nodes', id, 'style'], {});
+  }
+
+  function fitGroupTx(tx, gid, bp) {
+    const d = tx.doc;
+    const g = schema.effectiveNode(d, gid, bp);
+    if (!g || !Array.isArray(g.children) || !g.children.length) return false;
+    const kids = g.children.map((id) => schema.effectiveNode(d, id, bp)).filter(Boolean);
+    if (!kids.length) return false;
+    const B = geometry.aabb(kids.map((k) => geometry.aabb(geometry.corners({ x: k.x, y: k.y, w: k.w, h: k.h }, k.rotation || 0))));
+    const bx = rnd(B.x);
+    const by = rnd(B.y);
+    const bw = rnd(B.w);
+    const bh = rnd(B.h);
+    if (near(bx, 0, 1e-3) && near(by, 0, 1e-3) && near(bw, g.w, 1e-3) && near(bh, g.h, 1e-3)) return false;
+    const rot = g.rotation || 0;
+    const v = rotV({ x: B.x + B.w / 2 - g.w / 2, y: B.y + B.h / 2 - g.h / 2 }, rot);
+    const nc = { x: g.x + g.w / 2 + v.x, y: g.y + g.h / 2 + v.y };
+    tx.updateNode(gid, { x: rnd(nc.x - B.w / 2), y: rnd(nc.y - B.h / 2), w: bw, h: bh }, { bp });
+    if (!near(B.x, 0, 1e-9) || !near(B.y, 0, 1e-9)) {
+      for (const k of kids) tx.updateNode(k.id, { x: rnd(k.x - B.x), y: rnd(k.y - B.y) }, { bp });
+    }
+    return true;
+  }
+
+  function depthOf(doc, id) {
+    return schema.ancestors(doc, id).length;
+  }
+
+  /** Refit every group ancestor of ids (deepest first). */
+  function refitGroups(tx, ids, bp) {
+    const d = tx.doc;
+    const groups = new Set();
+    for (const id of toArray(ids)) {
+      let n = nodeOf(d, id);
+      while (n && n.parent) {
+        const p = nodeOf(d, n.parent);
+        if (!p || p.type !== 'group') break;
+        groups.add(p.id);
+        n = p;
+      }
+    }
+    const list = Array.from(groups).sort((a, b) => depthOf(d, b) - depthOf(d, a));
+    for (const gid of list) if (nodeOf(tx.doc, gid)) fitGroupTx(tx, gid, bp);
+  }
+
+  /** Remove groups left empty (walking up) and refit the others. `parents` are container ids. */
+  function cleanupContainers(tx, parents) {
+    const toFit = [];
+    for (const pid of parents) {
+      let id = pid;
+      while (id) {
+        const n = tx.node(id);
+        if (!n || n.type !== 'group') break;
+        if (n.children && n.children.length) { toFit.push(id); break; }
+        const up = n.parent;
+        tx.removeNode(id);
+        id = up;
+      }
+    }
+    const d = tx.doc;
+    toFit.filter((id) => nodeOf(d, id)).sort((a, b) => depthOf(d, b) - depthOf(d, a)).forEach((id) => {
+      fitGroupTx(tx, id, null);
+      refitGroups(tx, [id], null);
+    });
+  }
+
+  /** Scale the children of a group (recursively through nested groups). */
+  function scaleGroupChildren(tx, gid, sx, sy, bp) {
+    const g = schema.effectiveNode(tx.doc, gid, bp);
+    if (!g || !Array.isArray(g.children)) return;
+    for (const cid of g.children) {
+      const c = schema.effectiveNode(tx.doc, cid, bp);
+      if (!c) continue;
+      tx.updateNode(cid, { x: rnd(c.x * sx), y: rnd(c.y * sy), w: rnd(Math.max(0, c.w * sx)), h: rnd(Math.max(0, c.h * sy)) }, { bp });
+      if (c.type === 'group') scaleGroupChildren(tx, cid, sx, sy, bp);
+    }
+  }
+
+  /** Apply a box patch (group children scale with the group). */
+  function applyBox(tx, id, patch, bp) {
+    const n = schema.effectiveNode(tx.doc, id, bp);
+    if (!n) return;
+    if (n.type === 'group' && (has(patch, 'w') || has(patch, 'h'))) {
+      const sx = has(patch, 'w') && n.w > 0 ? patch.w / n.w : 1;
+      const sy = has(patch, 'h') && n.h > 0 ? patch.h / n.h : 1;
+      if (sx !== 1 || sy !== 1) scaleGroupChildren(tx, id, sx, sy, bp);
+    }
+    tx.updateNode(id, patch, { bp });
+  }
+
+  function boxPatch(box, current) {
+    const patch = {};
+    if (!box) return patch;
+    for (const k of BOX_KEYS) {
+      if (!isNum(box[k])) continue;
+      let v = k === 'rotation' ? normAngle(box[k]) : rnd(box[k]);
+      if ((k === 'w' || k === 'h') && v < 0) v = 0;
+      if (current && near(num(current[k], 0), v, 1e-9)) continue;
+      patch[k] = v;
+    }
+    return patch;
+  }
+
+  /** Move a node by a world delta. */
+  function moveByWorld(tx, geo, id, dx, dy, bp) {
+    if (!dx && !dy) return;
+    const n = geo.eff(id);
+    const F = geo.frame(n.parent);
+    const v = rotV({ x: dx, y: dy }, -F.rot);
+    if (near(v.x, 0, 1e-9) && near(v.y, 0, 1e-9)) return;
+    tx.updateNode(id, { x: rnd(n.x + v.x), y: rnd(n.y + v.y) }, { bp });
+  }
+
+  function movableIds(doc, ids, bp) {
+    return topLevel(doc, ids).filter((id) => !isLocked(doc, id) && !parentIsStack(doc, id, bp));
+  }
+
+  /** Detach ids from their parents and append them (in order) to parentId at index (base without them). */
+  function relink(tx, ids, parentId, index) {
+    const set = new Set(ids);
+    for (const id of ids) {
+      const n = tx.node(id);
+      if (n.parent === parentId) continue;
+      const old = n.parent ? tx.node(n.parent) : null;
+      if (old && Array.isArray(old.children) && old.children.includes(id)) {
+        tx.set(['nodes', old.id, 'children'], old.children.filter((c) => c !== id));
+      }
+      tx.set(['nodes', id, 'parent'], parentId);
+    }
+    const kids = tx.node(parentId).children;
+    const base = kids.filter((c) => !set.has(c));
+    const at = index === undefined || index === null ? base.length : util.clamp(Math.round(index), 0, base.length);
+    const next = base.slice(0, at).concat(ids, base.slice(at));
+    if (!util.deepEqual(next, kids)) tx.set(['nodes', parentId, 'children'], next);
+  }
+
+  function readingOrder(items, boxOf) {
+    const sorted = items.slice().sort((a, b) => boxOf(a).y - boxOf(b).y || boxOf(a).x - boxOf(b).x);
+    const rows = [];
+    for (const it of sorted) {
+      const b = boxOf(it);
+      const row = rows[rows.length - 1];
+      if (row && b.y < row.ref.y + row.ref.h / 2) row.items.push(it);
+      else rows.push({ ref: b, items: [it] });
+    }
+    return rows.map((r) => r.items.sort((a, b) => boxOf(a).x - boxOf(b).x || boxOf(a).y - boxOf(b).y));
+  }
+
+  /* ----------------------------------------------------------------- insert */
+
+  function createSpec(tx, spec, parentId, index, shift) {
+    const init = Object.assign({}, spec);
+    delete init.children;
+    delete init.parent;
+    if (!init.type) init.type = 'frame';
+    if (shift) {
+      init.x = rnd(num(init.x, 0) + shift.x);
+      init.y = rnd(num(init.y, 0) + shift.y);
+    }
+    const id = tx.createNode(init, parentId, index);
+    const node = tx.node(id);
+    if (Array.isArray(spec.children) && Array.isArray(node.children)) {
+      for (const child of spec.children) if (util.isPlainObject(child)) createSpec(tx, child, id, undefined, null);
+      if (node.type === 'group' && !isNum(spec.w) && !isNum(spec.h)) fitGroupTx(tx, id, null);
+    }
+    return id;
+  }
+
+  /**
+   * insert(target, specs, { parent, index, at: {x,y}, anchor: 'topleft'|'center', select = true, label }) → ids
+   * `at` places the union bounds of the top-level specs (top-left, or center with anchor 'center')
+   * in the parent's local coordinates.
+   */
+  function insert(target, specs, opts) {
+    const o = opts || {};
+    const { store } = resolve(target);
+    const list = toArray(specs).filter(util.isPlainObject);
+    if (!list.length) return [];
+    const doc = store.doc;
+    const parentId = o.parent || defaultParent(doc, store, list[0].type);
+    const parent = nodeOf(doc, parentId);
+    if (!isContainerNode(parent)) throw new Error('docops.insert: parent "' + parentId + '" is not a container');
+    let shift = null;
+    if (o.at && isNum(o.at.x) && isNum(o.at.y)) {
+      const rects = list.map((s) => {
+        const probe = schema.createNode(s.type || 'frame', util.omit(s, ['children', 'parent', 'id']));
+        return geometry.aabb(geometry.corners({ x: probe.x, y: probe.y, w: probe.w, h: probe.h }, probe.rotation || 0));
+      });
+      const B = geometry.union(rects);
+      shift = o.anchor === 'center'
+        ? { x: o.at.x - (B.x + B.w / 2), y: o.at.y - (B.y + B.h / 2) }
+        : { x: o.at.x - B.x, y: o.at.y - B.y };
+    }
+    const label = o.label || (list.length === 1 ? 'Insert ' + typeLabel(list[0].type || 'frame') : 'Insert ' + util.plural(list.length, 'layer'));
+    return store.transact(label, (tx) => {
+      const ids = [];
+      let index = isNum(o.index) ? o.index : undefined;
+      for (const spec of list) {
+        ids.push(createSpec(tx, spec, parentId, index, shift));
+        if (index !== undefined) index++;
+      }
+      refitGroups(tx, ids, null);
+      if (o.select !== false) tx.select(ids);
+      return ids;
+    });
+  }
+
+  /* ---------------------------------------------------------- remove / dup */
+
+  function remove(target, ids) {
+    const { store } = resolve(target);
+    const doc = store.doc;
+    const list = topLevel(doc, ids);
+    if (!list.length) return 0;
+    return store.transact(layerLabel('Delete', list.length), (tx) => {
+      const parents = new Set(list.map((id) => doc.nodes[id].parent));
+      list.forEach((id) => tx.removeNode(id));
+      cleanupContainers(tx, parents);
+      return list.length;
+    });
+  }
+
+  function duplicate(target, ids, opts) {
+    const o = opts || {};
+    const offset = o.offset === undefined ? 16 : num(Number(o.offset), 0);
+    const { store } = resolve(target);
+    const doc = store.doc;
+    const list = sortDocOrder(doc, topLevel(doc, ids));
+    if (!list.length) return [];
+    return store.transact(layerLabel('Duplicate', list.length), (tx) => {
+      const out = [];
+      for (const id of list) {
+        const d = tx.doc;
+        const orig = d.nodes[id];
+        const parent = d.nodes[orig.parent];
+        const { nodes, idMap } = schema.reid(d.nodes, [id]);
+        const newId = idMap[id];
+        const copy = nodes[newId];
+        const free = !(parent.layout && parent.layout.mode === 'stack');
+        if (free && offset) {
+          copy.x = rnd(copy.x + offset);
+          copy.y = rnd(copy.y + offset);
+          if (util.isPlainObject(copy.bp)) {
+            for (const k of Object.keys(copy.bp)) {
+              const ov = copy.bp[k];
+              if (!util.isPlainObject(ov)) continue;
+              if (isNum(ov.x)) ov.x = rnd(ov.x + offset);
+              if (isNum(ov.y)) ov.y = rnd(ov.y + offset);
+            }
+          }
+        }
+        for (const nid of Object.keys(nodes)) tx.set(['nodes', nid], nodes[nid]);
+        const kids = tx.node(parent.id).children.slice();
+        kids.splice(kids.indexOf(id) + 1, 0, newId);
+        tx.set(['nodes', parent.id, 'children'], kids);
+        out.push(newId);
+      }
+      refitGroups(tx, out, null);
+      tx.select(out);
+      return out;
+    });
+  }
+
+  /* ------------------------------------------------------------- move / box */
+
+  function move(target, ids, dx, dy, opts) {
+    const o = opts || {};
+    const c = resolve(target);
+    const store = c.store;
+    const doc = store.doc;
+    const bp = bpFor(store, o);
+    const ddx = num(Number(dx), 0);
+    const ddy = num(Number(dy), 0);
+    const list = movableIds(doc, ids, bp);
+    if (!list.length || (!ddx && !ddy)) return [];
+    const geo = makeGeo(doc, bp, null);
+    return store.transact(o.label || layerLabel('Move', list.length), (tx) => {
+      for (const id of list) moveByWorld(tx, geo, id, ddx, ddy, bp);
+      refitGroups(tx, list, bp);
+      return list;
+    }, { coalesce: o.coalesce });
+  }
+
+  function setBox(target, id, box, opts) {
+    const o = opts || {};
+    const { store } = resolve(target);
+    const doc = store.doc;
+    const bp = bpFor(store, o);
+    const n = nodeOf(doc, id);
+    if (!n || isLocked(doc, id)) return false;
+    const patch = boxPatch(box, schema.effectiveNode(doc, id, bp));
+    const keys = Object.keys(patch);
+    if (!keys.length) return false;
+    let label = 'Resize';
+    if (keys.every((k) => k === 'rotation')) label = 'Rotate';
+    else if (keys.every((k) => k === 'x' || k === 'y')) label = 'Move';
+    return store.transact(o.label || label, (tx) => {
+      applyBox(tx, id, patch, bp);
+      refitGroups(tx, [id], bp);
+      return true;
+    }, { coalesce: o.coalesce });
+  }
+
+  /** Expand dotted keys ('style.fill') into nested patches for one node. */
+  function patchForNode(node, patch) {
+    const out = {};
+    for (const key of Object.keys(patch)) {
+      const value = patch[key];
+      const parts = key.split('.');
+      const top = parts[0];
+      if (PATCH_BLOCKED.has(top) || !schema.NODE_KEYS.includes(top)) continue;
+      if (parts.length === 1) {
+        if (util.isPlainObject(value) && util.isPlainObject(out[top])) out[top] = Object.assign({}, out[top], value);
+        else out[top] = value;
+        continue;
+      }
+      const container = util.isPlainObject(out[top]) ? out[top] : {};
+      const sub = parts[1];
+      if (parts.length === 2) {
+        container[sub] = value;
+      } else {
+        const currentSub = container[sub] !== undefined ? container[sub] : util.getPath(node, [top, sub]);
+        container[sub] = util.setPathImmutable(util.isPlainObject(currentSub) ? currentSub : {}, parts.slice(2), value);
+      }
+      out[top] = container;
+    }
+    return out;
+  }
+
+  function update(target, ids, patch, opts) {
+    const o = opts || {};
+    const { store } = resolve(target);
+    const doc = store.doc;
+    const bp = bpFor(store, o);
+    const list = existing(doc, ids);
+    if (!list.length || !util.isPlainObject(patch)) return [];
+    const label = o.label || (list.length === 1 ? 'Edit layer' : 'Edit ' + util.plural(list.length, 'layer'));
+    return store.transact(label, (tx) => {
+      let boxChanged = false;
+      for (const id of list) {
+        const p = patchForNode(tx.node(id), patch);
+        if (!Object.keys(p).length) continue;
+        if (BOX_KEYS.some((k) => has(p, k))) {
+          boxChanged = true;
+          const box = {};
+          const rest = {};
+          for (const k of Object.keys(p)) (BOX_KEYS.includes(k) ? box : rest)[k] = p[k];
+          if (Object.keys(rest).length) tx.updateNode(id, rest, { bp });
+          applyBox(tx, id, box, bp);
+        } else {
+          tx.updateNode(id, p, { bp });
+        }
+      }
+      if (boxChanged) refitGroups(tx, list, bp);
+      return list;
+    }, { coalesce: o.coalesce });
+  }
+
+  /* --------------------------------------------------------------- reparent */
+
+  function reparent(target, ids, parentId, index) {
+    const c = resolve(target);
+    const store = c.store;
+    const doc = store.doc;
+    const parent = nodeOf(doc, parentId);
+    if (!isContainerNode(parent)) return [];
+    const blocked = new Set([parentId].concat(schema.ancestors(doc, parentId)));
+    const list = sortDocOrder(doc, topLevel(doc, ids)).filter((id) => !blocked.has(id));
+    if (!list.length) return [];
+    const geo = makeGeo(doc, null, domHook(c, doc, null));
+    const worlds = new Map(list.map((id) => [id, geo.world(id)]));
+    const label = layerLabel('Move', list.length) + ' into ' + (parent.name || typeLabel(parent.type));
+    return store.transact(label, (tx) => {
+      const oldParents = new Set(list.map((id) => doc.nodes[id].parent));
+      const changed = list.filter((id) => doc.nodes[id].parent !== parentId);
+      relink(tx, list, parentId, index);
+      const targetStack = parent.layout && parent.layout.mode === 'stack';
+      if (changed.length && !targetStack) {
+        const geo2 = makeGeo(tx.doc, null, null);
+        const F = geo2.frame(parentId);
+        for (const id of changed) {
+          const n = tx.node(id);
+          const wb = worlds.get(id);
+          const l = localFromWorld(F, wb);
+          const patch = { x: rnd(l.x), y: rnd(l.y), rotation: l.rotation };
+          const sz = n.sizing || {};
+          if (sz.w === 'fill' || sz.h === 'fill') {
+            patch.sizing = { w: sz.w === 'fill' ? 'fixed' : sz.w, h: sz.h === 'fill' ? 'fixed' : sz.h };
+            patch.w = rnd(wb.w);
+            patch.h = rnd(wb.h);
+          }
+          const prev = doc.nodes[id];
+          tx.updateNode(id, patch);
+          if (!(prev.rotation || 0) && !l.rotation && !parentIsStack(doc, id, null)) shiftBpOverrides(tx, id, rnd(l.x - prev.x), rnd(l.y - prev.y));
+        }
+      }
+      oldParents.delete(parentId);
+      cleanupContainers(tx, oldParents);
+      refitGroups(tx, list, null);
+      return list;
+    });
+  }
+
+  /* ------------------------------------------------------ group / ungroup */
+
+  /**
+   * Wrap `list` (doc order, top-level) in a new container placed where the topmost item was.
+   * Returns { id, bounds }. Children keep their world placement.
+   */
+  function enclose(tx, c, list, init, orderFn) {
+    const doc = tx.doc;
+    const top = list[list.length - 1];
+    const parentId = doc.nodes[top].parent;
+    const geo = makeGeo(doc, null, domHook(c, doc, null));
+    const worlds = new Map(list.map((id) => [id, geo.world(id)]));
+    const sameParent = new Set(list.filter((id) => doc.nodes[id].parent === parentId));
+    const parent = tx.node(parentId);
+    const idx = parent.children.indexOf(top);
+    const cid = tx.createNode(Object.assign({ x: 0, y: 0, w: 1, h: 1, rotation: 0 }, init), parentId, idx + 1);
+    clearStyle(tx, cid);
+    const ordered = orderFn ? orderFn(list, worlds) : list;
+    relink(tx, ordered, cid, 0);
+    const oldParents = new Set(list.map((id) => doc.nodes[id].parent));
+    oldParents.delete(parentId);
+    const geo2 = makeGeo(tx.doc, null, null);
+    const F = geo2.frame(parentId);
+    const locals = new Map(list.map((id) => [id, localFromWorld(F, worlds.get(id))]));
+    const B = geometry.aabb(list.map((id) => { const l = locals.get(id); return geometry.aabb(geometry.corners(l, l.rotation)); }));
+    const bx = rnd(B.x);
+    const by = rnd(B.y);
+    tx.updateNode(cid, { x: bx, y: by, w: rnd(B.w), h: rnd(B.h) });
+    for (const id of list) {
+      const l = locals.get(id);
+      const prev = doc.nodes[id];
+      const patch = { x: rnd(l.x - bx), y: rnd(l.y - by), rotation: l.rotation };
+      const sz = prev.sizing || {};
+      if (sz.w === 'fill' || sz.h === 'fill') {
+        patch.sizing = { w: sz.w === 'fill' ? 'fixed' : sz.w, h: sz.h === 'fill' ? 'fixed' : sz.h };
+        patch.w = rnd(l.w);
+        patch.h = rnd(l.h);
+      }
+      tx.updateNode(id, patch);
+      if (sameParent.has(id) && !parentIsStack(doc, id, null)) shiftBpOverrides(tx, id, -bx, -by);
+    }
+    cleanupContainers(tx, oldParents);
+    return { id: cid, parentId, bounds: { x: bx, y: by, w: rnd(B.w), h: rnd(B.h) } };
+  }
+
+  function group(target, ids, opts) {
+    const o = opts || {};
+    const c = resolve(target);
+    const store = c.store;
+    const doc = store.doc;
+    const list = sortDocOrder(doc, topLevel(doc, ids));
+    if (!list.length) return null;
+    const parentId = doc.nodes[list[list.length - 1]].parent;
+    return store.transact('Group', (tx) => {
+      const name = o.name || util.nextName('Group', siblingNames(doc, parentId));
+      const res = enclose(tx, c, list, { type: 'group', name, layout: { mode: 'free' } });
+      refitGroups(tx, [res.id], null);
+      tx.select([res.id]);
+      return res.id;
+    });
+  }
+
+  function ungroup(target, idOrIds) {
+    const c = resolve(target);
+    const store = c.store;
+    const doc = store.doc;
+    const gids = existing(doc, idOrIds).filter((id) => {
+      const n = doc.nodes[id];
+      return isContainerNode(n) && n.parent && n.type !== 'page' && n.type !== 'section';
+    });
+    if (!gids.length) return [];
+    return store.transact(gids.length === 1 ? 'Ungroup' : 'Ungroup ' + gids.length, (tx) => {
+      const out = [];
+      for (const gid of gids) {
+        const g = tx.node(gid);
+        if (!g) continue;
+        const parentId = g.parent;
+        const kids = g.children.slice();
+        const geo = makeGeo(tx.doc, null, domHook(c, tx.doc, null));
+        const worlds = kids.map((k) => geo.world(k));
+        const gOpacity = num(g.style && g.style.opacity, 1);
+        const p = tx.node(parentId);
+        const idx = p.children.indexOf(gid);
+        tx.set(['nodes', parentId, 'children'], p.children.slice(0, idx).concat(kids, p.children.slice(idx + 1)));
+        kids.forEach((k) => tx.set(['nodes', k, 'parent'], parentId));
+        tx.set(['nodes', gid, 'children'], []);
+        tx.removeNode(gid);
+        const parentStack = !!(p.layout && p.layout.mode === 'stack');
+        const geo2 = makeGeo(tx.doc, null, null);
+        const F = geo2.frame(parentId);
+        kids.forEach((k, i) => {
+          const child = tx.node(k);
+          const patch = {};
+          if (!parentStack) {
+            const l = localFromWorld(F, worlds[i]);
+            patch.x = rnd(l.x);
+            patch.y = rnd(l.y);
+            patch.rotation = l.rotation;
+            if (!(g.rotation || 0)) shiftBpOverrides(tx, k, g.x, g.y);
+          }
+          if (gOpacity !== 1) patch.style = { opacity: rnd(num(child.style && child.style.opacity, 1) * gOpacity) };
+          if (Object.keys(patch).length) tx.updateNode(k, patch);
+        });
+        out.push.apply(out, kids);
+        refitGroups(tx, kids, null);
+      }
+      tx.select(out);
+      return out;
+    });
+  }
+
+  /**
+   * wrap(target, ids, { layout: 'free'|'stack'|{ mode, dir, gap, … }, name }) → frame id.
+   * Stack wraps order children along the detected (or given) direction and hug their content.
+   */
+  function wrap(target, ids, opts) {
+    const o = opts || {};
+    const c = resolve(target);
+    const store = c.store;
+    const doc = store.doc;
+    const list = sortDocOrder(doc, topLevel(doc, ids));
+    if (!list.length) return null;
+    const lo = typeof o.layout === 'string' ? { mode: o.layout } : (util.isPlainObject(o.layout) ? Object.assign({}, o.layout) : { mode: 'free' });
+    const mode = lo.mode === 'stack' ? 'stack' : 'free';
+    const parentId = doc.nodes[list[list.length - 1]].parent;
+    return store.transact(mode === 'stack' ? 'Wrap in stack' : 'Wrap in frame', (tx) => {
+      const name = o.name || util.nextName(mode === 'stack' ? 'Stack' : 'Frame', siblingNames(doc, parentId));
+      let layout = { mode: 'free' };
+      let orderFn = null;
+      if (mode === 'stack') {
+        const geo = makeGeo(doc, null, domHook(c, doc, null));
+        const boxes = list.map((id) => geo.worldAABB(id));
+        const U = geometry.union(boxes);
+        const maxW = Math.max.apply(null, boxes.map((b) => b.w));
+        const maxH = Math.max.apply(null, boxes.map((b) => b.h));
+        const dir = lo.dir === 'row' || lo.dir === 'column' ? lo.dir : (U.w - maxW > U.h - maxH ? 'row' : 'column');
+        const byId = new Map(list.map((id, i) => [id, boxes[i]]));
+        const sorted = list.slice().sort((a, b) => (dir === 'row' ? byId.get(a).x - byId.get(b).x : byId.get(a).y - byId.get(b).y));
+        let gap = lo.gap;
+        if (!isNum(gap)) {
+          const gaps = [];
+          for (let i = 1; i < sorted.length; i++) {
+            const pa = byId.get(sorted[i - 1]);
+            const pb = byId.get(sorted[i]);
+            gaps.push(dir === 'row' ? pb.x - (pa.x + pa.w) : pb.y - (pa.y + pa.h));
+          }
+          gap = gaps.length ? Math.max(0, Math.round(gaps.reduce((s, g) => s + g, 0) / gaps.length)) : 16;
+        }
+        layout = Object.assign({}, lo, { mode: 'stack', dir, gap });
+        orderFn = () => sorted;
+      } else {
+        layout = Object.assign({}, lo, { mode: 'free' });
+      }
+      const res = enclose(tx, c, list, { type: 'frame', name, layout }, orderFn);
+      if (mode === 'stack') tx.updateNode(res.id, { sizing: { w: 'hug', h: 'hug' } });
+      refitGroups(tx, [res.id], null);
+      tx.select([res.id]);
+      return res.id;
+    });
+  }
+
+  /* ------------------------------------------------------ align & friends */
+
+  function align(target, ids, edge, opts) {
+    const o = opts || {};
+    const { store } = resolve(target);
+    const doc = store.doc;
+    const bp = bpFor(store, o);
+    if (!ALIGN_LABELS[edge]) throw new Error('docops.align: unknown edge "' + edge + '"');
+    const all = topLevel(doc, ids);
+    const list = all.filter((id) => !isLocked(doc, id) && !parentIsStack(doc, id, bp));
+    if (!list.length) return [];
+    const to = o.to || (all.length === 1 ? 'parent' : 'selection');
+    const geo = makeGeo(doc, bp, null);
+    const selBounds = geometry.union(all.map((id) => geo.worldAABB(id)));
+    const deltaFor = (b, ref) => {
+      switch (edge) {
+        case 'left': return { x: ref.x - b.x, y: 0 };
+        case 'right': return { x: ref.x + ref.w - (b.x + b.w), y: 0 };
+        case 'hcenter': return { x: ref.x + ref.w / 2 - (b.x + b.w / 2), y: 0 };
+        case 'top': return { x: 0, y: ref.y - b.y };
+        case 'bottom': return { x: 0, y: ref.y + ref.h - (b.y + b.h) };
+        default: return { x: 0, y: ref.y + ref.h / 2 - (b.y + b.h / 2) };
+      }
+    };
+    return store.transact(ALIGN_LABELS[edge], (tx) => {
+      for (const id of list) {
+        const n = geo.eff(id);
+        if (to === 'parent') {
+          const pb = geo.localBox(n.parent);
+          const d = deltaFor(geo.parentAABB(id), { x: 0, y: 0, w: pb.w, h: pb.h });
+          if (!near(d.x, 0, 1e-9) || !near(d.y, 0, 1e-9)) tx.updateNode(id, { x: rnd(n.x + d.x), y: rnd(n.y + d.y) }, { bp });
+        } else {
+          const d = deltaFor(geo.worldAABB(id), selBounds);
+          moveByWorld(tx, geo, id, d.x, d.y, bp);
+        }
+      }
+      refitGroups(tx, list, bp);
+      return list;
+    });
+  }
+
+  function distribute(target, ids, axis, opts) {
+    const o = opts || {};
+    const { store } = resolve(target);
+    const doc = store.doc;
+    const bp = bpFor(store, o);
+    const horizontal = axis === 'h' || axis === 'x' || axis === 'horizontal';
+    const mode = o.mode === 'center' ? 'center' : 'gap';
+    const list = movableIds(doc, ids, bp);
+    if (list.length < 3) return [];
+    const geo = makeGeo(doc, bp, null);
+    const P = horizontal ? 'x' : 'y';
+    const S = horizontal ? 'w' : 'h';
+    const items = list.map((id) => ({ id, b: geo.worldAABB(id) }));
+    return store.transact(horizontal ? 'Distribute horizontally' : 'Distribute vertically', (tx) => {
+      if (mode === 'center') {
+        items.sort((a, b) => (a.b[P] + a.b[S] / 2) - (b.b[P] + b.b[S] / 2));
+        const c0 = items[0].b[P] + items[0].b[S] / 2;
+        const cn = items[items.length - 1].b[P] + items[items.length - 1].b[S] / 2;
+        const step = (cn - c0) / (items.length - 1);
+        items.forEach((it, i) => {
+          const d = c0 + step * i - (it.b[P] + it.b[S] / 2);
+          moveByWorld(tx, geo, it.id, horizontal ? d : 0, horizontal ? 0 : d, bp);
+        });
+      } else {
+        items.sort((a, b) => a.b[P] - b.b[P] || (a.b[P] + a.b[S]) - (b.b[P] + b.b[S]));
+        const start = items[0].b[P];
+        const end = Math.max.apply(null, items.map((it) => it.b[P] + it.b[S]));
+        const sizes = items.reduce((s, it) => s + it.b[S], 0);
+        const gap = (end - start - sizes) / (items.length - 1);
+        let pos = start;
+        items.forEach((it) => {
+          const d = pos - it.b[P];
+          moveByWorld(tx, geo, it.id, horizontal ? d : 0, horizontal ? 0 : d, bp);
+          pos += it.b[S] + gap;
+        });
+      }
+      refitGroups(tx, list, bp);
+      return list;
+    });
+  }
+
+  function tidy(target, ids, opts) {
+    const o = opts || {};
+    const { store } = resolve(target);
+    const doc = store.doc;
+    const bp = bpFor(store, o);
+    const list = movableIds(doc, ids, bp);
+    if (list.length < 2) return [];
+    const geo = makeGeo(doc, bp, null);
+    const boxes = new Map(list.map((id) => [id, geo.worldAABB(id)]));
+    const rows = readingOrder(list, (id) => boxes.get(id));
+    const n = list.length;
+    let cols = isNum(o.columns) && o.columns >= 1 ? Math.round(o.columns) : 0;
+    if (!cols) {
+      cols = rows.length > 1 && rows[0].length > 1 && rows.every((r) => r.length <= rows[0].length)
+        ? rows[0].length
+        : Math.ceil(Math.sqrt(n));
+    }
+    const ordered = [].concat.apply([], rows);
+    const gapX = isNum(o.gap) ? o.gap : (isNum(o.gapX) ? o.gapX : 16);
+    const gapY = isNum(o.gapY) ? o.gapY : gapX;
+    const U = geometry.union(Array.from(boxes.values()));
+    const rowCount = Math.ceil(n / cols);
+    const colW = new Array(cols).fill(0);
+    const rowH = new Array(rowCount).fill(0);
+    ordered.forEach((id, i) => {
+      const b = boxes.get(id);
+      colW[i % cols] = Math.max(colW[i % cols], b.w);
+      rowH[Math.floor(i / cols)] = Math.max(rowH[Math.floor(i / cols)], b.h);
+    });
+    return store.transact('Tidy up', (tx) => {
+      ordered.forEach((id, i) => {
+        const col = i % cols;
+        const row = Math.floor(i / cols);
+        let x = U.x;
+        for (let k = 0; k < col; k++) x += colW[k] + gapX;
+        let y = U.y;
+        for (let k = 0; k < row; k++) y += rowH[k] + gapY;
+        const b = boxes.get(id);
+        moveByWorld(tx, geo, id, x - b.x, y - b.y, bp);
+      });
+      refitGroups(tx, list, bp);
+      return ordered;
+    });
+  }
+
+  /**
+   * radial(target, ids, { radius, startAngle = -90, sweep = 360, cx, cy, rotateItems }) → ids
+   * Places item CENTERS on a circle in the order given. Angles in degrees, 0 = +x, clockwise.
+   * cx/cy are in the first item's parent coordinates (default: selection bounds center).
+   * rotateItems: true|'tangent' → rotation = angle + 90 (item top faces outward); 'radial' → angle.
+   */
+  function radial(target, ids, opts) {
+    const o = opts || {};
+    const { store } = resolve(target);
+    const doc = store.doc;
+    const bp = bpFor(store, o);
+    const list = movableIds(doc, ids, bp);
+    if (!list.length) return [];
+    const geo = makeGeo(doc, bp, null);
+    const worlds = new Map(list.map((id) => [id, geo.world(id)]));
+    const U = geometry.union(list.map((id) => geo.worldAABB(id)));
+    const F0 = geo.frame(doc.nodes[list[0]].parent);
+    let C = { x: U.x + U.w / 2, y: U.y + U.h / 2 };
+    if (isNum(o.cx) || isNum(o.cy)) {
+      const localC = rotV({ x: C.x - F0.x, y: C.y - F0.y }, -F0.rot);
+      const lc = { x: isNum(o.cx) ? o.cx : localC.x, y: isNum(o.cy) ? o.cy : localC.y };
+      const wc = rotV(lc, F0.rot);
+      C = { x: F0.x + wc.x, y: F0.y + wc.y };
+    }
+    const radius = isNum(o.radius) ? Math.max(0, o.radius) : Math.max(U.w, U.h) / 2;
+    const start = isNum(o.startAngle) ? o.startAngle : -90;
+    const sweep = isNum(o.sweep) ? util.clamp(o.sweep, -360, 360) : 360;
+    const n = list.length;
+    const full = Math.abs(sweep) >= 360;
+    const step = n <= 1 ? 0 : (full ? sweep / n : sweep / (n - 1));
+    const rotMode = o.rotateItems === true ? 'tangent' : (o.rotateItems === 'tangent' || o.rotateItems === 'radial' ? o.rotateItems : null);
+    return store.transact('Arrange in circle', (tx) => {
+      list.forEach((id, i) => {
+        const angle = start + step * i;
+        const rad = angle * Math.PI / 180;
+        const wc = { x: C.x + radius * Math.cos(rad), y: C.y + radius * Math.sin(rad) };
+        const wb = worlds.get(id);
+        const node = geo.eff(id);
+        const F = geo.frame(node.parent);
+        const v = rotV({ x: wc.x - wb.cx, y: wc.y - wb.cy }, -F.rot);
+        const patch = { x: rnd(node.x + v.x), y: rnd(node.y + v.y) };
+        if (rotMode) patch.rotation = normAngle((rotMode === 'tangent' ? angle + 90 : angle) - F.rot);
+        tx.updateNode(id, patch, { bp });
+      });
+      refitGroups(tx, list, bp);
+      return list;
+    });
+  }
+
+  /**
+   * matchSize(target, ids, { w, h }) — numbers set that size; `true` uses the largest selected size.
+   * Rotated nodes keep their center.
+   */
+  function matchSize(target, ids, opts) {
+    const o = opts || {};
+    const { store } = resolve(target);
+    const doc = store.doc;
+    const bp = bpFor(store, o);
+    const all = existing(doc, ids).filter((id) => !isRoot(doc, id));
+    const list = all.filter((id) => !isLocked(doc, id));
+    if (!list.length || (!o.w && o.w !== 0 && !o.h && o.h !== 0)) return [];
+    const effs = all.map((id) => schema.effectiveNode(doc, id, bp));
+    const refW = isNum(o.w) ? o.w : (o.w ? Math.max.apply(null, effs.map((n) => n.w)) : null);
+    const refH = isNum(o.h) ? o.h : (o.h ? Math.max.apply(null, effs.map((n) => n.h)) : null);
+    const label = refW !== null && refH !== null ? 'Match size' : refW !== null ? 'Match width' : 'Match height';
+    return store.transact(label, (tx) => {
+      for (const id of list) {
+        const n = schema.effectiveNode(tx.doc, id, bp);
+        const box = {};
+        if (refW !== null) box.w = Math.max(0, refW);
+        if (refH !== null) box.h = Math.max(0, refH);
+        if (n.rotation) {
+          if (has(box, 'w')) box.x = n.x - (box.w - n.w) / 2;
+          if (has(box, 'h')) box.y = n.y - (box.h - n.h) / 2;
+        }
+        const patch = boxPatch(box, n);
+        if (Object.keys(patch).length) applyBox(tx, id, patch, bp);
+      }
+      refitGroups(tx, list, bp);
+      return list;
+    });
+  }
+
+  function zorder(target, ids, dir) {
+    const { store } = resolve(target);
+    const doc = store.doc;
+    if (!ZORDER_LABELS[dir]) throw new Error('docops.zorder: unknown direction "' + dir + '"');
+    const list = existing(doc, ids).filter((id) => !isRoot(doc, id));
+    if (!list.length) return [];
+    const byParent = util.groupBy(list, (id) => doc.nodes[id].parent);
+    return store.transact(ZORDER_LABELS[dir], (tx) => {
+      for (const pid of Object.keys(byParent)) {
+        const sel = new Set(byParent[pid]);
+        const kids = tx.node(pid).children.slice();
+        let next;
+        if (dir === 'front') next = kids.filter((k) => !sel.has(k)).concat(kids.filter((k) => sel.has(k)));
+        else if (dir === 'back') next = kids.filter((k) => sel.has(k)).concat(kids.filter((k) => !sel.has(k)));
+        else if (dir === 'forward') {
+          next = kids.slice();
+          for (let i = next.length - 2; i >= 0; i--) {
+            if (sel.has(next[i]) && !sel.has(next[i + 1])) { const t = next[i]; next[i] = next[i + 1]; next[i + 1] = t; }
+          }
+        } else {
+          next = kids.slice();
+          for (let i = 1; i < next.length; i++) {
+            if (sel.has(next[i]) && !sel.has(next[i - 1])) { const t = next[i]; next[i] = next[i - 1]; next[i - 1] = t; }
+          }
+        }
+        if (!util.deepEqual(next, kids)) tx.set(['nodes', pid, 'children'], next);
+      }
+      return list;
+    });
+  }
+
+  function setLocked(target, ids, locked) {
+    const { store } = resolve(target);
+    const doc = store.doc;
+    const value = !!locked;
+    const list = existing(doc, ids).filter((id) => !!doc.nodes[id].locked !== value);
+    if (!list.length) return [];
+    return store.transact(layerLabel(value ? 'Lock' : 'Unlock', list.length), (tx) => {
+      list.forEach((id) => tx.updateNode(id, { locked: value }));
+      return list;
+    });
+  }
+
+  function setHidden(target, ids, hidden, opts) {
+    const { store } = resolve(target);
+    const doc = store.doc;
+    const bp = bpFor(store, opts);
+    const value = !!hidden;
+    const list = existing(doc, ids).filter((id) => !isRoot(doc, id) && !!schema.effectiveNode(doc, id, bp).hidden !== value);
+    if (!list.length) return [];
+    return store.transact(layerLabel(value ? 'Hide' : 'Show', list.length), (tx) => {
+      list.forEach((id) => tx.updateNode(id, { hidden: value }, { bp }));
+      return list;
+    });
+  }
+
+  function fitGroup(target, groupId, opts) {
+    const { store } = resolve(target);
+    const doc = store.doc;
+    const bp = bpFor(store, opts);
+    const g = nodeOf(doc, groupId);
+    if (!g || !isContainerNode(g)) return false;
+    return store.transact('Fit group', (tx) => {
+      const changed = fitGroupTx(tx, groupId, bp);
+      if (changed) refitGroups(tx, [groupId], bp);
+      return changed;
+    }) || false;
+  }
+
+  /* --------------------------------------------------------- responsive */
+
+  /**
+   * makeResponsive(target, pageId, bpId, { pad, gap }) → number of nodes overridden.
+   * Free sections: children in reading order stack into one column (x = pad,
+   * w = min(w, width − 2·pad), images keep aspect, free containers scale uniformly, text grows),
+   * large text shrinks (≥ 40px: ×0.7 mobile, ×0.85 otherwise), section height fits.
+   * Row stacks become columns on mobile (width < 600). All writes are bp overrides.
+   */
+  function makeResponsive(target, pageId, bpId, opts) {
+    const o = opts || {};
+    const { store } = resolve(target);
+    const doc = store.doc;
+    const page = doc.pages.find((p) => p.id === pageId) || (!pageId ? currentPage(doc, store) : null);
+    if (!page) return 0;
+    const bps = doc.settings.breakpoints || [];
+    const idx = bps.findIndex((b) => b.id === bpId);
+    if (idx <= 0) return 0;
+    const bp = bps[idx];
+    const width = bp.width;
+    const mobile = bp.id === 'mobile' || width < 600;
+    const pad = isNum(o.pad) ? o.pad : (mobile ? 16 : 24);
+    const GAP = isNum(o.gap) ? o.gap : 16;
+    const fontFactor = mobile ? 0.7 : 0.85;
+    const avail = Math.max(1, width - 2 * pad);
+    const eff = (id) => schema.effectiveNode(doc, id, bpId);
+
+    return store.transact('Make responsive (' + (bp.label || bp.id) + ')', (tx) => {
+      const touched = new Set();
+      const write = (id, patch) => {
+        if (!Object.keys(patch).length) return;
+        tx.updateNode(id, patch, { bp: bpId });
+        touched.add(id);
+      };
+      const scaledFont = (n, extra) => {
+        const fs = n.style && n.style.fontSize;
+        if (!isNum(fs)) return null;
+        let next = fs;
+        if (fs >= 40) next = fs * fontFactor;
+        if (extra && extra < 1) next = Math.max(12, next * extra);
+        next = Math.round(next);
+        return next !== fs ? next : null;
+      };
+      const scaleSubtree = (id, s) => {
+        const n = eff(id);
+        if (!n || !Array.isArray(n.children)) return;
+        const free = !(n.layout && n.layout.mode === 'stack');
+        for (const cid of n.children) {
+          const k = eff(cid);
+          if (!k) continue;
+          const patch = {};
+          if (free) {
+            patch.x = rnd(k.x * s);
+            patch.y = rnd(k.y * s);
+            patch.w = rnd(k.w * s);
+            patch.h = rnd(k.h * s);
+          } else if ((k.sizing || {}).w !== 'fill' && k.w * s < k.w) {
+            patch.w = rnd(k.w * s);
+          }
+          const f = scaledFont(k, s);
+          if (f !== null) patch.style = { fontSize: f };
+          write(cid, patch);
+          scaleSubtree(cid, s);
+        }
+      };
+
+      schema.walk(doc, page.root, (node) => {
+        const n = eff(node.id);
+        if (!n || !Array.isArray(n.children)) return;
+        const L = n.layout || {};
+        if (L.mode === 'stack') {
+          if (mobile && L.dir === 'row' && n.type !== 'page') write(n.id, { layout: { dir: 'column' } });
+          for (const cid of n.children) {
+            const k = eff(cid);
+            if (!k || k.hidden) continue;
+            const sz = k.sizing || {};
+            if (sz.w === 'fixed' && k.w > avail && n.type !== 'page') write(cid, { w: rnd(avail) });
+          }
+          return;
+        }
+        const isSection = n.type === 'section' || (!!n.parent && nodeOf(doc, n.parent) && nodeOf(doc, n.parent).type === 'page');
+        if (!isSection) return;
+        const kids = n.children.map(eff).filter((k) => k && !k.hidden);
+        const rows = readingOrder(kids, (k) => k);
+        let y = pad;
+        for (const k of [].concat.apply([], rows)) {
+          const w = Math.min(k.w, avail);
+          const s = k.w > 0 ? w / k.w : 1;
+          let h = k.h;
+          const patch = { x: pad, y: rnd(y), w: rnd(w) };
+          const f = scaledFont(k);
+          const fontScale = f !== null && k.style.fontSize ? f / k.style.fontSize : 1;
+          if (k.type === 'image' || (isContainerNode(k) && !(k.layout && k.layout.mode === 'stack'))) {
+            h = k.h * s;
+            if (isContainerNode(k) && s < 1) scaleSubtree(k.id, s);
+          } else if (TEXTY.has(k.type)) {
+            h = k.h * (s < 1 ? 1 / s : 1) * fontScale;
+          }
+          if (f !== null) patch.style = { fontSize: f };
+          if (k.rotation) patch.rotation = 0;
+          patch.h = rnd(h);
+          write(k.id, patch);
+          y += h + GAP;
+        }
+        if (kids.length) write(n.id, { h: rnd(Math.max(y - GAP + pad, 1)) });
+      });
+      return touched.size;
+    });
+  }
+
+  /* ------------------------------------------------------------- components */
+
+  function createComponent(target, ids, opts) {
+    const o = opts || {};
+    const c = resolve(target);
+    const store = c.store;
+    const doc = store.doc;
+    const list = sortDocOrder(doc, topLevel(doc, ids)).filter((id) => doc.nodes[id].type !== 'page');
+    if (!list.length) return null;
+    const top = list[list.length - 1];
+    const parentId = doc.nodes[top].parent;
+    const geo = makeGeo(doc, null, domHook(c, doc, null));
+    const worlds = new Map(list.map((id) => [id, geo.world(id)]));
+    const compNames = new Set(Object.values(doc.components || {}).map((cp) => cp && cp.name));
+    return store.transact('Create component', (tx) => {
+      const cpId = util.uid('cp', doc.components || {});
+      const first = doc.nodes[list[0]];
+      const single = list.length === 1 && isContainerNode(first);
+      const name = o.name || (single ? util.nextName(first.name || 'Component', compNames) : util.nextName('Component', compNames));
+      const F = geo.frame(parentId);
+      let rootId;
+      let inst;
+      if (single) {
+        const { nodes, idMap } = schema.reid(tx.doc.nodes, [first.id]);
+        rootId = idMap[first.id];
+        const root = nodes[rootId];
+        const l = localFromWorld(F, worlds.get(first.id));
+        inst = { x: rnd(l.x), y: rnd(l.y), w: rnd(l.w), h: rnd(l.h), rotation: l.rotation, sizing: util.deepClone(first.sizing), bp: {} };
+        if (util.isPlainObject(root.bp)) {
+          for (const k of Object.keys(root.bp)) {
+            const ov = root.bp[k];
+            if (!util.isPlainObject(ov)) continue;
+            const boxPart = util.pick(ov, ['x', 'y', 'w', 'h', 'rotation', 'hidden', 'sizing']);
+            if (Object.keys(boxPart).length) inst.bp[k] = boxPart;
+            root.bp[k] = util.omit(ov, ['x', 'y', 'rotation', 'hidden']);
+            if (!Object.keys(root.bp[k]).length) delete root.bp[k];
+          }
+        }
+        Object.assign(root, { parent: null, x: 0, y: 0, rotation: 0, hidden: false, locked: false, name });
+        for (const nid of Object.keys(nodes)) tx.set(['nodes', nid], nodes[nid]);
+      } else {
+        const locals = new Map(list.map((id) => [id, localFromWorld(F, worlds.get(id))]));
+        const B = geometry.aabb(list.map((id) => { const l = locals.get(id); return geometry.aabb(geometry.corners(l, l.rotation)); }));
+        rootId = tx.createNode({ type: 'frame', name, x: 0, y: 0, w: rnd(B.w), h: rnd(B.h), rotation: 0, layout: { mode: 'free' } }, null);
+        clearStyle(tx, rootId);
+        const { nodes, idMap } = schema.reid(tx.doc.nodes, list);
+        for (const id of list) {
+          const copy = nodes[idMap[id]];
+          const l = locals.get(id);
+          copy.parent = rootId;
+          copy.x = rnd(l.x - B.x);
+          copy.y = rnd(l.y - B.y);
+          copy.rotation = l.rotation;
+          copy.locked = false;
+          if (util.isPlainObject(copy.bp)) {
+            for (const k of Object.keys(copy.bp)) {
+              const ov = copy.bp[k];
+              if (!util.isPlainObject(ov)) continue;
+              if (isNum(ov.x)) ov.x = rnd(ov.x - B.x);
+              if (isNum(ov.y)) ov.y = rnd(ov.y - B.y);
+            }
+          }
+          const sz = copy.sizing || {};
+          if (sz.w === 'fill' || sz.h === 'fill') {
+            copy.sizing = { w: sz.w === 'fill' ? 'fixed' : sz.w, h: sz.h === 'fill' ? 'fixed' : sz.h };
+            copy.w = rnd(l.w);
+            copy.h = rnd(l.h);
+          }
+        }
+        for (const nid of Object.keys(nodes)) tx.set(['nodes', nid], nodes[nid]);
+        tx.set(['nodes', rootId, 'children'], list.map((id) => idMap[id]));
+        inst = { x: rnd(B.x), y: rnd(B.y), w: rnd(B.w), h: rnd(B.h), rotation: 0 };
+      }
+      tx.setDocField(['components', cpId], { id: cpId, name, root: rootId });
+      const p = tx.node(parentId);
+      const init = Object.assign({ type: 'instance', name, props: { component: cpId, overrides: {} } }, inst);
+      if (init.bp && !Object.keys(init.bp).length) delete init.bp;
+      const instId = tx.createNode(init, parentId, p.children.indexOf(top) + 1);
+      tx.set(['nodes', instId, 'props'], { component: cpId, overrides: {} });
+      const oldParents = new Set(list.map((id) => doc.nodes[id].parent));
+      list.forEach((id) => tx.removeNode(id));
+      cleanupContainers(tx, oldParents);
+      refitGroups(tx, [instId], null);
+      tx.select([instId]);
+      return cpId;
+    });
+  }
+
+  function instantiate(target, componentId, opts) {
+    const o = opts || {};
+    const { store } = resolve(target);
+    const doc = store.doc;
+    const comp = doc.components && doc.components[componentId];
+    const root = comp && nodeOf(doc, comp.root);
+    if (!root) return null;
+    const parentId = o.parent || defaultParent(doc, store, root.type);
+    const parent = nodeOf(doc, parentId);
+    if (!isContainerNode(parent)) return null;
+    let x = 0;
+    let y = 0;
+    if (o.at && isNum(o.at.x) && isNum(o.at.y)) {
+      x = o.at.x;
+      y = o.at.y;
+    } else if (!(parent.layout && parent.layout.mode === 'stack')) {
+      const pb = makeGeo(doc, null, null).localBox(parentId);
+      x = Math.max(0, (pb.w - root.w) / 2);
+      y = Math.max(0, (pb.h - root.h) / 2);
+    }
+    return store.transact('Insert ' + (comp.name || 'component'), (tx) => {
+      const id = tx.createNode({
+        type: 'instance', name: comp.name || 'Component', x: rnd(x), y: rnd(y), w: root.w, h: root.h, rotation: 0,
+        sizing: util.deepClone(root.sizing || { w: 'fixed', h: 'fixed' }), props: { component: componentId, overrides: {} }
+      }, parentId, isNum(o.index) ? o.index : undefined);
+      tx.set(['nodes', id, 'props'], { component: componentId, overrides: {} });
+      refitGroups(tx, [id], null);
+      if (o.select !== false) tx.select([id]);
+      return id;
+    });
+  }
+
+  function detach(target, instanceId) {
+    const { store } = resolve(target);
+    const doc = store.doc;
+    const inst = nodeOf(doc, instanceId);
+    if (!inst || inst.type !== 'instance' || !inst.parent) return [];
+    const comp = doc.components && inst.props && doc.components[inst.props.component];
+    const root = comp && nodeOf(doc, comp.root);
+    if (!root) return [];
+    return store.transact('Detach instance', (tx) => {
+      const { nodes, idMap } = schema.reid(tx.doc.nodes, [root.id]);
+      const overrides = util.isPlainObject(inst.props.overrides) ? inst.props.overrides : {};
+      for (const masterId of Object.keys(overrides)) {
+        const nid = idMap[masterId];
+        const ov = overrides[masterId];
+        if (!nid || !util.isPlainObject(ov)) continue;
+        const nd = nodes[nid];
+        for (const key of schema.MERGE_KEYS) {
+          if (util.isPlainObject(ov[key])) nd[key] = Object.assign({}, util.isPlainObject(nd[key]) ? nd[key] : {}, util.deepClone(ov[key]));
+        }
+        if (typeof ov.hidden === 'boolean') nd.hidden = ov.hidden;
+        if (typeof ov.name === 'string' && ov.name) nd.name = ov.name;
+      }
+      const newRootId = idMap[root.id];
+      const nr = nodes[newRootId];
+      Object.assign(nr, {
+        parent: inst.parent, x: inst.x, y: inst.y, w: inst.w, h: inst.h, rotation: inst.rotation || 0,
+        hidden: !!inst.hidden, locked: false, name: inst.name || nr.name,
+        sizing: util.deepClone(inst.sizing || nr.sizing)
+      });
+      if (util.isPlainObject(inst.style) && Object.keys(inst.style).length) nr.style = Object.assign({}, nr.style, util.deepClone(inst.style));
+      if (util.isPlainObject(inst.attrs) && Object.keys(inst.attrs).length) nr.attrs = Object.assign({}, nr.attrs, util.deepClone(inst.attrs));
+      if (inst.motion) nr.motion = util.deepClone(inst.motion);
+      if (inst.css) nr.css = inst.css;
+      if (util.isPlainObject(inst.states) && Object.keys(inst.states).length) nr.states = Object.assign({}, nr.states, util.deepClone(inst.states));
+      if (util.isPlainObject(inst.bp)) {
+        const bpOut = util.isPlainObject(nr.bp) ? Object.assign({}, nr.bp) : {};
+        for (const k of Object.keys(inst.bp)) {
+          const add = util.pick(inst.bp[k] || {}, ['x', 'y', 'w', 'h', 'rotation', 'hidden', 'sizing']);
+          if (Object.keys(add).length) bpOut[k] = Object.assign({}, bpOut[k] || {}, util.deepClone(add));
+        }
+        nr.bp = bpOut;
+      }
+      for (const nid of Object.keys(nodes)) tx.set(['nodes', nid], nodes[nid]);
+      const p = tx.node(inst.parent);
+      tx.set(['nodes', p.id, 'children'], p.children.map((k) => (k === instanceId ? newRootId : k)));
+      tx.removeNode(instanceId);
+      tx.select([newRootId]);
+      return [newRootId];
+    });
+  }
+
+  /* ---------------------------------------------------------------- helpers */
+
+  /** World box { cx, cy, w, h, rotation } of a node (page coordinates). */
+  function worldBox(doc, id, opts) {
+    if (!nodeOf(doc, id)) return null;
+    return makeGeo(doc, (opts && opts.bp) || null, null).world(id);
+  }
+
+  /** Axis-aligned world bounds { x, y, w, h } of a node (rotation included). */
+  function worldBounds(doc, id, opts) {
+    if (!nodeOf(doc, id)) return null;
+    return makeGeo(doc, (opts && opts.bp) || null, null).worldAABB(id);
+  }
+
+  /** Convert a world box into the local { x, y, w, h, rotation } of container parentId. */
+  function toLocal(doc, parentId, box, opts) {
+    const F = makeGeo(doc, (opts && opts.bp) || null, null).frame(parentId);
+    return localFromWorld(F, box);
+  }
+
+  return {
+    insert, remove, duplicate, move, setBox, update, reparent,
+    group, ungroup, wrap, align, distribute, tidy, radial, matchSize, zorder,
+    setLocked, setHidden, fitGroup, makeResponsive,
+    createComponent, instantiate, detach,
+    worldBox, worldBounds, toLocal, topLevel, sortDocOrder, isLocked
+  };
+});
 </script>
 <!-- canvas (B1) -->
 <script data-src="js/canvas/viewport.js">
@@ -3986,6 +7679,11 @@ APB.define('app', ['util', 'events', 'env', 'schema', 'store', 'commands', 'sani
       root.append(wrap);
 
       const live = document.getElementById('apb-live');
+      if (live && getComputedStyle(live).position !== 'absolute') {
+        // tokens.css (B2) normally provides .apb-sr-only; keep the live region visually hidden without it.
+        live.style.cssText = 'position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;' +
+          'clip-path:inset(50%);white-space:nowrap;border:0;';
+      }
       const sorted = (list) => list.slice().sort((a, b) => (a.order ?? 100) - (b.order ?? 100));
 
       return {

@@ -64,14 +64,12 @@ export default function (APB, t) {
 
   test('createNode merges registered element defaults', () => {
     const A = t.loadAPB();
-    A.define('elements', [], () => {
-      const types = {
-        badge: { type: 'badge', label: 'Badge', container: false, bpProps: ['text'],
-          defaults: () => ({ w: 80, h: 24, style: { radius: 12, fill: '#000' }, props: { text: 'New', tone: 'info' } }) },
-        card: { type: 'card', label: 'Card', container: true, defaults: () => ({ layout: { mode: 'stack', gap: 8 } }) }
-      };
-      return { get: (type) => types[type] || null };
-    });
+    // The real registry is part of the core (A2); register extra types through it.
+    const els = A.require('elements');
+    els.register({ type: 'badge', label: 'Badge', container: false, bpProps: ['text'], vnode: () => ({ tag: 'span' }),
+      defaults: () => ({ w: 80, h: 24, style: { radius: 12, fill: '#000' }, props: { text: 'New', tone: 'info' } }) });
+    els.register({ type: 'card', label: 'Card', container: true, vnode: () => ({ tag: 'div', slot: true }),
+      defaults: () => ({ layout: { mode: 'stack', gap: 8 } }) });
     const s = A.require('schema');
     const badge = s.createNode('badge', { props: { text: 'Hot' } });
     assert.equal(badge.w, 80);
@@ -120,7 +118,7 @@ export default function (APB, t) {
     assert.equal(tab.w, 200);
     assert.deepEqual(tab.style, { fontSize: 36, color: '#111', lineHeight: 1.5 });
     assert.equal(tab.props.text, 'Hi tablet');
-    assert.equal(tab.props.secret, 'y', 'without a registry all props may cascade');
+    assert.equal(tab.props.secret, 'x', 'registered text type limits props overrides to bpProps');
     const mob = schema.effectiveNode(doc, text, 'mobile');
     assert.equal(mob.x, 0, 'tablet override inherited by mobile');
     assert.equal(mob.w, 150);
@@ -139,7 +137,7 @@ export default function (APB, t) {
 
   test('effectiveNode restricts props overrides to bpProps when the type is registered', () => {
     const A = t.loadAPB();
-    A.define('elements', [], () => ({ get: (type) => (type === 'text' ? { type: 'text', container: false, bpProps: ['text'] } : null) }));
+    assert.ok(A.require('elements').get('text').bpProps.includes('text'));
     const s = A.require('schema');
     const { doc, text } = sampleDoc();
     const tab = s.effectiveNode(doc, text, 'tablet');
