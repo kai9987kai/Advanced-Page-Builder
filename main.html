@@ -6,7 +6,7 @@
 <meta name="color-scheme" content="light dark">
 <meta name="description" content="Advanced Page Builder — a zero-dependency visual web page builder that runs entirely in your browser.">
 <meta name="generator" content="Advanced Page Builder 2.0.0">
-<!-- Advanced Page Builder v2.0.0 · built 2026-09-15T06:36:54.346Z · single-file build of src/index.html -->
+<!-- Advanced Page Builder v2.0.0 · built 2026-09-15T06:57:46.662Z · single-file build of src/index.html -->
 <title>Advanced Page Builder</title>
 
 <style data-src="css/tokens.css">
@@ -583,7 +583,7 @@ APB.define('util', [], function () {
   function slugify(str, fallback = '') {
     const s = String(str == null ? '' : str)
       .normalize('NFKD')
-      .replace(/[̀-ͯ]/g, '')
+      .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase()
       .replace(/&/g, ' and ')
       .replace(/[^a-z0-9]+/g, '-')
@@ -638,13 +638,14 @@ APB.define('util', [], function () {
     for (let qi = 0; qi < q.length; qi++) {
       const ch = q[qi];
       if (ch === ' ') continue;
-      // Prefer a word-start occurrence ahead of the current position.
+      // Prefer a consecutive or word-start occurrence, as long as the rest of the query still fits.
       let found = -1;
       for (let j = ti; j < tl.length; j++) {
-        if (tl[j] === ch) {
-          if (found < 0) found = j;
-          if (j === prev + 1) { found = j; break; }
-          if (isWordStart(t, j)) { found = j; break; }
+        if (tl[j] !== ch) continue;
+        if (found < 0) found = j;
+        if (j === prev + 1 || isWordStart(t, j)) {
+          if (isSubsequence(q, qi + 1, tl, j + 1)) found = j;
+          break;
         }
       }
       if (found < 0) return null;
@@ -663,6 +664,17 @@ APB.define('util', [], function () {
     else if (tl.includes(q)) score += 10;
     score -= Math.min(10, tl.length * 0.05);
     return { score: Math.max(0.01, score), positions };
+  }
+
+  function isSubsequence(q, qi, tl, ti) {
+    let j = ti;
+    for (let i = qi; i < q.length; i++) {
+      if (q[i] === ' ') continue;
+      j = tl.indexOf(q[i], j);
+      if (j < 0) return false;
+      j++;
+    }
+    return true;
   }
 
   function isWordStart(text, i) {
@@ -1598,9 +1610,9 @@ APB.define('sanitize', ['util'], function (util) {
    */
   function url(input, kind = 'link') {
     if (typeof input !== 'string') return '';
-    let s = input.replace(/^[ - ]+|[ - ]+$/g, '').replace(/[\t\n\r]/g, '');
+    let s = input.replace(/^[\u0000- ]+|[\u0000- ]+$/g, '').replace(/[\t\n\r]/g, '');
     if (!s || s.length > 8 * 1024 * 1024) return '';
-    if (/[ --  ]/.test(s)) return '';
+    if (/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(s)) return '';
     const allowed = KIND_SCHEMES[kind] || KIND_SCHEMES.link;
     if (kind === 'embed') return normalizeEmbed(s.startsWith('//') ? 'https:' + s : s);
 
@@ -1647,7 +1659,7 @@ APB.define('sanitize', ['util'], function (util) {
     return str
       .replace(/\\([0-9a-fA-F]{1,6})[ \t\n\r\f]?/g, (_, hex) => {
         const cp = parseInt(hex, 16);
-        return cp > 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : '�';
+        return cp > 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : '\ufffd';
       })
       .replace(/\\([^0-9a-fA-F\n])/g, '$1');
   }
@@ -1688,7 +1700,7 @@ APB.define('sanitize', ['util'], function (util) {
     let v = value.trim();
     if (!v || v.length > MAX_CSS) return '';
     if (/[<>{}@]/.test(v)) return '';
-    if (/[ --]/.test(v)) return '';
+    if (/[\u0000-\u0008\u000b\u000e-\u001f\u007f]/.test(v)) return '';
     const lowered = decodeCSSEscapes(v).toLowerCase().replace(/\s+/g, '');
     for (const bad of BANNED_CSS) if (lowered.includes(bad)) return '';
     if (lowered.includes('url(')) {
@@ -1739,7 +1751,7 @@ APB.define('sanitize', ['util'], function (util) {
   /** stylesheet(css) → text safe to place inside a <style> element (global CSS). */
   function stylesheet(text) {
     if (typeof text !== 'string') return '';
-    let s = text.replace(/ /g, '');
+    let s = text.replace(/\u0000/g, '');
     // Normalise escapes of ASCII word characters so obfuscated keywords are caught.
     s = s.replace(/\\([0-9a-fA-F]{1,6})[ \t\n\r\f]?/g, (m, hex) => {
       const ch = String.fromCodePoint(Math.min(parseInt(hex, 16), 0x10ffff) || 0xfffd);
@@ -2071,7 +2083,7 @@ APB.define('sanitize', ['util'], function (util) {
         const body = inertBody(input);
         body.querySelectorAll('script,style,template,noscript').forEach((n) => n.remove());
         body.querySelectorAll('br').forEach((n) => n.replaceWith('\n'));
-        return (body.textContent || '').replace(/ /g, ' ');
+        return (body.textContent || '').replace(/\u00a0/g, ' ');
       } catch (_) { /* fall through */ }
     }
     return input
@@ -2674,22 +2686,51 @@ APB.define('schema', ['util'], function (util) {
       }
     }
 
-    // Reachability from roots; first claim wins, cycles and duplicates are cut.
+    // Reachability from roots (breadth-first). When several containers list the same child, the
+    // container named by the child's own `parent` field wins; otherwise the first claim wins.
+    // Cycles and duplicates are cut.
     const visited = new Set(rootIds);
-    const order = Array.from(rootIds);
-    for (let i = 0; i < order.length; i++) {
-      const node = nodes[order[i]];
-      if (!Array.isArray(node.children)) continue;
-      const kept = [];
-      for (const cid of node.children) {
-        if (!nodes[cid]) { warnings.push('Removed dangling child ref ' + cid); continue; }
-        if (visited.has(cid)) { warnings.push('Removed duplicate/cyclic child ref ' + cid); continue; }
-        visited.add(cid);
-        if (nodes[cid].parent !== node.id) nodes[cid].parent = node.id;
-        kept.push(cid);
-        order.push(cid);
+    const entries = new Map(); // containerId -> [{ id, keep }]
+    let queue = Array.from(rootIds);
+    const claimedBy = (cid, containerId) => {
+      visited.add(cid);
+      if (nodes[cid].parent !== containerId) nodes[cid].parent = containerId;
+      queue.push(cid);
+    };
+    while (queue.length) {
+      const batch = queue;
+      queue = [];
+      for (const id of batch) {
+        const node = nodes[id];
+        if (!Array.isArray(node.children)) continue;
+        const list = [];
+        for (const cid of node.children) {
+          if (!nodes[cid]) { warnings.push('Removed dangling child ref ' + cid); continue; }
+          if (visited.has(cid) || list.some((e) => e.id === cid)) { warnings.push('Removed duplicate/cyclic child ref ' + cid); continue; }
+          const hint = nodes[cid].parent;
+          const hinted = hint && hint !== id && nodes[hint] && Array.isArray(nodes[hint].children) && nodes[hint].children.includes(cid);
+          if (hinted) { list.push({ id: cid, keep: false }); continue; }
+          list.push({ id: cid, keep: true });
+          claimedBy(cid, id);
+        }
+        entries.set(id, list);
       }
-      if (kept.length !== node.children.length) node.children = kept;
+      if (!queue.length) {
+        // Deferred claims whose hinted parent never claimed them (e.g. unreachable) fall back here.
+        for (const [containerId, list] of entries) {
+          for (const e of list) {
+            if (!e.keep && !visited.has(e.id)) { e.keep = true; claimedBy(e.id, containerId); }
+          }
+        }
+      }
+    }
+    for (const [containerId, list] of entries) {
+      const kept = list.filter((e) => e.keep).map((e) => e.id);
+      const node = nodes[containerId];
+      if (kept.length !== node.children.length || kept.some((k, i) => node.children[i] !== k)) {
+        if (list.some((e) => !e.keep)) warnings.push('Resolved duplicate claims in ' + containerId);
+        node.children = kept;
+      }
     }
     const unreachable = Object.keys(nodes).filter((id) => !visited.has(id));
     if (unreachable.length) {

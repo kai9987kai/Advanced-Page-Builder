@@ -49,20 +49,23 @@ APB.define('store', ['util', 'events', 'schema'], function (util, events, schema
   }
 
   /**
-   * Remove same-path duplicates, keeping the LAST occurrence of each path in apply order (at its
-   * position). Forward ops are chronological → the latest value wins. Inverse ops are stored in
-   * apply order (newest change first) → the earliest original value wins ("keep earliest inverse").
-   * Any op between two same-path ops that touches a sub/super path is overwritten by, or already
-   * contains, the retained op, so the result is exact.
+   * Drop ops that a LATER op on the same path overwrites with a defined value (the retained op
+   * stays at its position). Forward ops are chronological → the latest value wins. Inverse ops are
+   * stored in apply order (newest change first) → the earliest original value wins ("keep earliest
+   * inverse"). Exactness: every op between the dropped and the retained op either touches a
+   * sub-path (overwritten by the retained op), a super-path (which already replaced the dropped
+   * op's effect) or an unrelated path. A later *delete* never drops earlier ops, because an earlier
+   * write may have created the parent objects that must survive the delete.
    */
   function compressOps(ops) {
     if (ops.length < 2) return ops;
-    const seen = new Set();
+    const overwritten = new Set();
     const out = [];
     for (let i = ops.length - 1; i >= 0; i--) {
-      if (seen.has(ops[i].path)) continue;
-      seen.add(ops[i].path);
-      out.push(ops[i]);
+      const op = ops[i];
+      if (overwritten.has(op.path)) continue;
+      if (op.value !== undefined) overwritten.add(op.path);
+      out.push(op);
     }
     return out.reverse();
   }
@@ -140,6 +143,7 @@ APB.define('store', ['util', 'events', 'schema'], function (util, events, schema
 
     function makeTx(ctx) {
       function set(path, value) {
+        if (ctx.closed) throw new Error('store: transaction "' + ctx.label + '" is already finished (transact fn must be synchronous)');
         let keys = pathString(path);
         let val = value;
         let state = ctx.state;
@@ -230,6 +234,7 @@ APB.define('store', ['util', 'events', 'schema'], function (util, events, schema
         return true;
       }
 
+      /** index = position in the target's children AFTER removing the node (omit to append). */
       function moveNode(id, parentId, index) {
         const node = requireNode(id);
         const parent = requireNode(parentId, 'parent');
@@ -311,7 +316,10 @@ APB.define('store', ['util', 'events', 'schema'], function (util, events, schema
         node: nodeOf,
         get doc() { return ctx.state; },
         get selection() { return ctx.selection; },
-        select(ids) { ctx.selection = normalizeIds(ids, ctx.state); }
+        select(ids) {
+          if (ctx.closed) throw new Error('store: transaction "' + ctx.label + '" is already finished');
+          ctx.selection = normalizeIds(ids, ctx.state);
+        }
       };
     }
 
@@ -328,6 +336,15 @@ APB.define('store', ['util', 'events', 'schema'], function (util, events, schema
       return out;
     }
 
+    /**
+     * transact(label, fn(tx), { coalesce, select, silent }) → fn's return value.
+     * - fn must be synchronous. If it throws, nothing is applied (no partial state) and the error
+     *   is rethrown. A transaction started inside another one joins it (one history entry); an
+     *   exception in the inner fn rolls back only the inner changes before rethrowing.
+     * - coalesce: consecutive transactions with the same key within COALESCE_MS merge into one entry.
+     * - select: ids to select after the transaction (recorded as the entry's selAfter).
+     * - silent: apply and emit 'change' but record no undo entry (for non-undoable bookkeeping).
+     */
     function transact(label, fn, txOpts) {
       if (typeof label === 'function') { txOpts = fn; fn = label; label = 'Edit'; }
       if (typeof fn !== 'function') throw new TypeError('store.transact: fn must be a function');
@@ -356,7 +373,10 @@ APB.define('store', ['util', 'events', 'schema'], function (util, events, schema
         }
       }
 
-      const ctx = { state: doc, ops: [], inverse: [], info: newInfo(), selection: selection, selBefore: selection, tx: null };
+      const ctx = {
+        label: String(label || 'Edit'), state: doc, ops: [], inverse: [], info: newInfo(),
+        selection: selection, selBefore: selection, tx: null, closed: false
+      };
       ctx.tx = makeTx(ctx);
       current = ctx;
       let result;
@@ -364,9 +384,14 @@ APB.define('store', ['util', 'events', 'schema'], function (util, events, schema
         result = fn(ctx.tx);
       } catch (err) {
         current = null;
+        ctx.closed = true;
         throw err;
       }
       current = null;
+      ctx.closed = true;
+      if (result && typeof result.then === 'function' && typeof console !== 'undefined') {
+        console.warn('[APB] store.transact("' + ctx.label + '"): fn returned a Promise; only synchronous changes are recorded');
+      }
 
       if (o.select) ctx.selection = normalizeIds(o.select, ctx.state);
       if (!ctx.ops.length) {
@@ -491,10 +516,14 @@ APB.define('store', ['util', 'events', 'schema'], function (util, events, schema
 
     function canUndo() { return index > 0; }
     function canRedo() { return index < entries.length; }
-    function undo() { return canUndo() ? step('undo', index - 1) : false; }
-    function redo() { return canRedo() ? step('redo', index + 1) : false; }
+    function assertNoTransaction(what) {
+      if (current) throw new Error('store: cannot ' + what + ' inside a transaction');
+    }
+    function undo() { assertNoTransaction('undo'); return canUndo() ? step('undo', index - 1) : false; }
+    function redo() { assertNoTransaction('redo'); return canRedo() ? step('redo', index + 1) : false; }
 
     function jump(target) {
+      assertNoTransaction('jump');
       const t = util.clamp(Math.round(Number(target) || 0), 0, entries.length);
       if (t === index) return false;
       return step(t < index ? 'undo' : 'redo', t);

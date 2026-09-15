@@ -59,6 +59,11 @@ APB.define('app', ['util', 'events', 'env', 'schema', 'store', 'commands', 'sani
       root.append(wrap);
 
       const live = document.getElementById('apb-live');
+      if (live && getComputedStyle(live).position !== 'absolute') {
+        // tokens.css (B2) normally provides .apb-sr-only; keep the live region visually hidden without it.
+        live.style.cssText = 'position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;' +
+          'clip-path:inset(50%);white-space:nowrap;border:0;';
+      }
       const sorted = (list) => list.slice().sort((a, b) => (a.order ?? 100) - (b.order ?? 100));
 
       return {

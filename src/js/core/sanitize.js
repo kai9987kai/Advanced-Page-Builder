@@ -26,6 +26,20 @@ APB.define('sanitize', ['util'], function (util) {
     embed: ['https']
   };
 
+  /** Decode numeric character references and the entities that can hide a scheme separator. */
+  function decodeCharRefs(s) {
+    return s
+      .replace(/&#x([0-9a-f]{1,6});?/gi, (_, h) => safeCodePoint(parseInt(h, 16)))
+      .replace(/&#(\d{1,7});?/g, (_, d) => safeCodePoint(parseInt(d, 10)))
+      .replace(/&colon;/gi, ':')
+      .replace(/&(tab|newline);/gi, '')
+      .replace(/[\t\n\r]/g, '');
+  }
+
+  function safeCodePoint(cp) {
+    return cp > 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : '�';
+  }
+
   function httpURL(s) {
     let u;
     try { u = new URL(s); } catch (_) { return null; }
@@ -119,8 +133,9 @@ APB.define('sanitize', ['util'], function (util) {
     if (!m) {
       // Relative reference. Refuse anything that could be re-interpreted as a scheme by a parser.
       if (s.includes('\\')) return '';
-      const beforePathEnd = s.split(/[/?#]/)[0];
-      if (beforePathEnd.includes(':')) return '';
+      if (s.split(/[/?#]/)[0].includes(':')) return '';
+      // Also refuse references that would gain a scheme if a consumer HTML-decoded them.
+      if (s.includes('&') && decodeCharRefs(s).split(/[/?#]/)[0].includes(':')) return '';
       if (kind !== 'link' && s[0] === '#') return '';
       return s.replace(/[\s"'<>`]/g, (c) => encodeURIComponent(c));
     }
@@ -254,6 +269,13 @@ APB.define('sanitize', ['util'], function (util) {
       return /[a-zA-Z0-9:(\-]/.test(ch) ? ch : m;
     });
     s = s.replace(/\\([a-zA-Z:(])/g, '$1');
+    const rewriteUrls = (text) => text.replace(URL_FN_RE, (_, dq, sq, bare) => {
+      const safe = url(dq !== undefined ? dq : sq !== undefined ? sq : bare, 'image');
+      return safe ? 'url("' + safe.replace(/["\\\n]/g, (c) => encodeURIComponent(c)) + '")' : 'none';
+    });
+    // URLs are checked before keyword stripping (so `url(javascript:…)` becomes `none`) and again
+    // afterwards, because removing a keyword can join the text around it into a new url( token.
+    s = rewriteUrls(s);
     let prev;
     do {
       prev = s;
@@ -268,11 +290,7 @@ APB.define('sanitize', ['util'], function (util) {
         .replace(/-moz-binding\s*:[^;}]*/gi, '')
         .replace(/behavior\s*:[^;}]*/gi, '');
     } while (s !== prev);
-    s = s.replace(URL_FN_RE, (_, dq, sq, bare) => {
-      const safe = url(dq !== undefined ? dq : sq !== undefined ? sq : bare, 'image');
-      return safe ? 'url("' + safe.replace(/["\\\n]/g, (c) => encodeURIComponent(c)) + '")' : 'none';
-    });
-    return s;
+    return rewriteUrls(s);
   }
 
   /* ======================================================== id / class */
@@ -356,13 +374,6 @@ APB.define('sanitize', ['util'], function (util) {
   const TARGETS = new Set(['_blank', '_self', '_parent', '_top']);
   const REL_TOKENS = new Set(['noopener', 'noreferrer', 'nofollow', 'ugc', 'sponsored', 'external', 'author', 'license', 'me', 'help', 'tag', 'prev', 'next']);
   const INT_ATTRS = new Set(['width', 'height', 'colspan', 'rowspan', 'start', 'rows', 'cols', 'size', 'minlength', 'maxlength']);
-
-  function allAttrNames(profile) {
-    const set = new Set(GLOBAL_ATTRS);
-    for (const tag of PROFILES[profile]) (ELEMENT_ATTRS[tag] || []).forEach((a) => set.add(a));
-    if (profile === 'html') set.add('style');
-    return Array.from(set);
-  }
 
   /*
    * DOM clobbering guard: ids/names that shadow window, document or form properties are dropped.
@@ -523,23 +534,29 @@ APB.define('sanitize', ['util'], function (util) {
     return typeof g.DOMParser === 'function';
   }
 
-  function nativeFirstPass(str, profile) {
+  /*
+   * Native Sanitizer API pass (defence in depth, never the only line of defence).
+   * The config is an explicit *removal* list rather than an element allowlist: with an allowlist
+   * the native API drops non-listed elements together with their text (e.g. <p> in the inline
+   * profile), while the walker below unwraps them and keeps the content. setHTML() additionally
+   * applies its built-in safe baseline (scripts, event handlers, javascript: URLs …).
+   */
+  const NATIVE_CONFIG = Object.freeze({
+    removeElements: Array.from(DROP_TAGS),
+    removeAttributes: ['srcdoc', 'formaction', 'action', 'is', 'ping', 'background', 'lowsrc', 'dynsrc', 'xmlns'],
+    comments: false
+  });
+
+  function nativeFirstPass(str) {
     try {
       const body = inertBody();
       const container = body.ownerDocument.createElement('div');
       body.appendChild(container);
       if (typeof container.setHTML !== 'function') return null;
-      container.setHTML(str, {
-        sanitizer: {
-          elements: Array.from(PROFILES[profile]),
-          attributes: allAttrNames(profile),
-          comments: false,
-          dataAttributes: profile === 'html'
-        }
-      });
+      container.setHTML(str, { sanitizer: NATIVE_CONFIG });
       return container;
     } catch (_) {
-      return null;
+      return null; // unsupported config/implementation → plain inert parse + walker
     }
   }
 
@@ -553,7 +570,7 @@ APB.define('sanitize', ['util'], function (util) {
     if (!PROFILES[profile]) profile = 'inline';
     if (!hasDOM()) return util.escapeHTML(input);
     try {
-      let root = nativeFirstPass(input, profile) || inertBody(input);
+      let root = nativeFirstPass(input) || inertBody(input);
       walk(root, profile, 0);
       let out = root.innerHTML;
       // Re-parse until the serialization is stable (defends against parser mutations / mXSS).
