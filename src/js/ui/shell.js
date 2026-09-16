@@ -15,7 +15,7 @@ APB.define('shell', ['env', 'util', 'schema', 'commands', 'widgets', 'icons', 'd
     const MENUS = [['file', 'File'], ['edit', 'Edit'], ['view', 'View'], ['insert', 'Insert'], ['arrange', 'Arrange'], ['help', 'Help']];
     const TOOL_LABELS = {
       select: 'Select', hand: 'Hand', frame: 'Frame', section: 'Section', text: 'Text', rect: 'Rectangle',
-      ellipse: 'Ellipse', line: 'Line', image: 'Image'
+      ellipse: 'Ellipse', line: 'Line', image: 'Image', button: 'Button', checklist: 'Checklist'
     };
     const THEMES = ['system', 'light', 'dark'];
     const THEME_LABELS = { system: 'System', light: 'Light', dark: 'Dark' };

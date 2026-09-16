@@ -6,7 +6,7 @@
  * toHTML/buildTree/expandInstance are pure and work in Node; toDOM/patch return null (no-op)
  * when there is no DOM.
  */
-APB.define('vdom', ['util', 'schema', 'sanitize', 'elements', 'style'], function (util, schema, sanitize, elements, style) {
+APB.define('vdom', ['util', 'schema', 'sanitize', 'elements', 'style', 'actions'], function (util, schema, sanitize, elements, style, actionsMod) {
   'use strict';
 
   const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -440,6 +440,12 @@ APB.define('vdom', ['util', 'schema', 'sanitize', 'elements', 'style'], function
       if (typeof at.role === 'string' && /^[a-z]+(?: [a-z]+)*$/.test(at.role.trim())) a.role = at.role.trim();
       if (typeof at.title === 'string' && at.title.trim()) a.title = at.title.trim();
       if (env.withIds) a['data-node-id'] = eff.id;
+      if (Array.isArray(eff.actions) && eff.actions.length) {
+        const clean = actionsMod.normalize(eff.actions, { doc: env.doc });
+        if (clean.length) {
+          try { a['data-apb-actions'] = JSON.stringify(clean); } catch (err) { /* non-serializable action data is dropped */ }
+        }
+      }
     }
     if ((env.inlineStyles || ro.decorate === false) && decls.size) v.style = style.declsToObject(decls);
   }

@@ -19,7 +19,7 @@ APB.define('schema', ['util'], function (util) {
   const BP_KEYS = Object.freeze(['x', 'y', 'w', 'h', 'rotation', 'hidden', 'sizing', 'layout', 'style', 'props']);
 
   const NODE_KEYS = Object.freeze(['id', 'type', 'name', 'parent', 'children', 'x', 'y', 'w', 'h', 'rotation', 'locked',
-    'hidden', 'sizing', 'layout', 'style', 'props', 'bp', 'states', 'motion', 'attrs', 'css']);
+    'hidden', 'sizing', 'layout', 'style', 'props', 'bp', 'states', 'motion', 'attrs', 'css', 'actions']);
 
   /** Keys whose plain-object values merge one level deep (updateNode patches, cascade). */
   const MERGE_KEYS = Object.freeze(['style', 'props', 'layout', 'sizing', 'attrs']);
@@ -115,7 +115,7 @@ APB.define('schema', ['util'], function (util) {
       locked: false, hidden: false,
       sizing: { w: 'fixed', h: 'fixed' },
       layout: null,
-      style: {}, props: {}, bp: {}, states: {}, motion: null, attrs: {}, css: ''
+      style: {}, props: {}, bp: {}, states: {}, motion: null, attrs: {}, css: '', actions: []
     };
   }
 
@@ -440,6 +440,7 @@ APB.define('schema', ['util'], function (util) {
     n.attrs = obj(n.attrs);
     n.motion = util.isPlainObject(n.motion) ? n.motion : null;
     n.css = str(n.css, '');
+    n.actions = Array.isArray(n.actions) ? n.actions.filter((a) => util.isPlainObject(a) && typeof a.type === 'string') : [];
     n.parent = typeof n.parent === 'string' ? n.parent : null;
     if (isContainer(type)) {
       n.children = Array.isArray(n.children) ? n.children.filter((c) => typeof c === 'string') : [];

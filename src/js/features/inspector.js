@@ -439,16 +439,24 @@
           return el;
         }
 
-        /** Editable string list (list element items). */
+        /**
+         * Editable string list (list element items). `o.checkable` switches items to
+         * `{ id, text, checked }` objects with a checkbox per row (used by the `checklist` type —
+         * see `features/element-types-extra.js`); plain items stay flat strings.
+         */
         function listEditor(o) {
+          const checkable = !!o.checkable;
           let items = [];
           let disabled = false;
           const rows = h('div', { class: 'apb-listedit-rows' });
           const addBtn = widgets.button({
             label: 'Add item', icon: 'plus', size: 'sm', variant: 'subtle',
-            onClick: () => { items = items.concat(['New item']); render(); o.onInput(items.slice(), { commit: true }); focusRow(items.length - 1); }
+            onClick: () => {
+              items = items.concat([checkable ? { id: util.uid('ci'), text: 'New item', checked: false } : 'New item']);
+              render(); o.onInput(items.slice(), { commit: true }); focusRow(items.length - 1);
+            }
           });
-          const el = h('div', { class: 'apb-listedit' }, rows, addBtn);
+          const el = h('div', { class: ['apb-listedit', checkable && 'apb-listedit--checkable'] }, rows, addBtn);
 
           function focusRow(i) {
             const input = rows.children[i] && rows.children[i].querySelector('input');
@@ -466,12 +474,20 @@
             focusRow(j);
           }
           function render() {
-            rows.replaceChildren(...items.map((text, i) => {
+            rows.replaceChildren(...items.map((item, i) => {
+              const text = checkable ? (item && item.text) || '' : item;
               const input = widgets.textField({
                 value: text, ariaLabel: 'Item ' + (i + 1),
-                onInput: (v, ctx) => { items[i] = v; o.onInput(items.slice(), { commit: !!(ctx && ctx.commit) }); }
+                onInput: (v, ctx) => {
+                  items[i] = checkable ? Object.assign({}, items[i], { text: v }) : v;
+                  o.onInput(items.slice(), { commit: !!(ctx && ctx.commit) });
+                }
               });
-              return h('div', { class: 'apb-listedit-row' }, input,
+              const check = checkable ? widgets.toggle({
+                ariaLabel: 'Checked', checked: !!(item && item.checked), labelVisible: false,
+                onInput: (v) => { items[i] = Object.assign({}, items[i], { checked: v }); o.onInput(items.slice(), { commit: true }); }
+              }) : null;
+              return h('div', { class: 'apb-listedit-row' }, check, input,
                 widgets.iconButton({ icon: 'chevron-up', label: 'Move item ' + (i + 1) + ' up', size: 'sm', disabled: i === 0, onClick: () => move(i, -1) }),
                 widgets.iconButton({ icon: 'chevron-down', label: 'Move item ' + (i + 1) + ' down', size: 'sm', disabled: i === items.length - 1, onClick: () => move(i, 1) }),
                 widgets.iconButton({ icon: 'trash', label: 'Remove item ' + (i + 1), size: 'sm', onClick: () => { items = items.filter((_, k) => k !== i); render(); o.onInput(items.slice(), { commit: true }); } }));
@@ -482,7 +498,12 @@
             el, labelTarget: addBtn,
             get value() { return items.slice(); },
             set value(v) {
-              const next = (Array.isArray(v) ? v : []).map((it) => (util.isPlainObject(it) ? String(it.text || '') : String(it == null ? '' : it)));
+              const list = Array.isArray(v) ? v : [];
+              const next = checkable
+                ? list.map((it) => (util.isPlainObject(it)
+                  ? { id: typeof it.id === 'string' && it.id ? it.id : util.uid('ci'), text: String(it.text || ''), checked: !!it.checked }
+                  : { id: util.uid('ci'), text: String(it == null ? '' : it), checked: false }))
+                : list.map((it) => (util.isPlainObject(it) ? String(it.text || '') : String(it == null ? '' : it)));
               if (util.deepEqual(next, items)) return;
               items = next;
               render();
@@ -991,7 +1012,7 @@
             case 'list':
               addField(parent, Object.assign({}, base, {
                 layout: 'stacked', fallback: [],
-                control: (write) => listEditor({ onInput: (v, ctx) => write(v, ctx) }),
+                control: (write) => listEditor({ checkable: !!spec.checkable, onInput: (v, ctx) => write(v, ctx) }),
                 applies
               }));
               return true;

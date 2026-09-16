@@ -14,7 +14,7 @@ APB.define('canvas', ['util', 'events', 'schema', 'elements', 'geometry', 'comma
     'use strict';
 
     const SVG_NS = 'http://www.w3.org/2000/svg';
-    const TOOLS = ['select', 'hand', 'frame', 'section', 'text', 'rect', 'ellipse', 'line', 'image'];
+    const TOOLS = ['select', 'hand', 'frame', 'section', 'text', 'rect', 'ellipse', 'line', 'image', 'button', 'checklist'];
     let commandsRegistered = false;
     const menusRegistered = new WeakSet();
 

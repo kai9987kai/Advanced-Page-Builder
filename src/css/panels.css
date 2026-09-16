@@ -548,6 +548,10 @@
   min-width: 0;
 }
 
+.apb-listedit--checkable .apb-listedit-row > .apb-switch {
+  flex: 0 0 auto;
+}
+
 .apb-listedit > .apb-btn {
   align-self: flex-start;
 }

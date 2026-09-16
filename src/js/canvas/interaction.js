@@ -49,7 +49,9 @@ APB.define('interaction', ['util', 'geometry', 'snapping', 'schema', 'elements',
     rect: { spec: () => ({ type: 'shape', name: 'Rectangle', props: { shape: 'rect' } }), size: { w: 160, h: 160 } },
     ellipse: { spec: () => ({ type: 'shape', name: 'Ellipse', props: { shape: 'ellipse' } }), size: { w: 160, h: 160 } },
     line: { spec: () => ({ type: 'shape', name: 'Line', props: { shape: 'line' } }), size: { w: 240, h: 1 }, flat: true },
-    image: { spec: () => ({ type: 'image' }), size: { w: 320, h: 240 }, pick: true }
+    image: { spec: () => ({ type: 'image' }), size: { w: 320, h: 240 }, pick: true },
+    button: { spec: () => ({ type: 'button' }), size: { w: 160, h: 48 } },
+    checklist: { spec: () => ({ type: 'checklist' }), size: { w: 280, h: 140 } }
   };
 
   const TOOL_KEYS = [
@@ -61,7 +63,9 @@ APB.define('interaction', ['util', 'geometry', 'snapping', 'schema', 'elements',
     ['rect', 'Rectangle', 'rect', ['R']],
     ['ellipse', 'Ellipse', 'ellipse', ['O']],
     ['line', 'Line', 'line', ['L']],
-    ['image', 'Image', 'image', ['Mod+Shift+K']]
+    ['image', 'Image', 'image', ['Mod+Shift+K']],
+    ['button', 'Button', 'button', ['B']],
+    ['checklist', 'Checklist', 'checklist', ['C']]
   ];
 
   const IMAGE_RE = /\.(png|jpe?g|gif|webp|avif|svg|bmp|ico)$/i;
