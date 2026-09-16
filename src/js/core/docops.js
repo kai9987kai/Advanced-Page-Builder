@@ -1319,6 +1319,101 @@ APB.define('docops', ['util', 'geometry', 'schema'], function (util, geometry, s
     });
   }
 
+  /* ------------------------------------------------------------------ pages */
+
+  /** createPage(target, { name, index }) → new page id, appended (or inserted at index). */
+  function createPage(target, opts) {
+    const o = opts || {};
+    const { store } = resolve(target);
+    return store.transact('Add page', (tx) => {
+      const { page, root } = schema.createPage(tx.doc, o.name);
+      tx.createNode(root, null);
+      const pages = (tx.doc.pages || []).slice();
+      const at = isNum(o.index) ? util.clamp(Math.round(o.index), 0, pages.length) : pages.length;
+      pages.splice(at, 0, page);
+      tx.setDocField('pages', pages);
+      return page.id;
+    });
+  }
+
+  /** duplicatePage(target, pageId) → new page id (fresh ids for the whole subtree), inserted right after the source. */
+  function duplicatePage(target, pageId) {
+    const { store } = resolve(target);
+    const doc = store.doc;
+    const page = (doc.pages || []).find((p) => p.id === pageId);
+    if (!page || !doc.nodes[page.root]) return null;
+    return store.transact('Duplicate page', (tx) => {
+      const { nodes, idMap } = schema.reid(tx.doc.nodes, [page.root]);
+      for (const nid of Object.keys(nodes)) tx.set(['nodes', nid], nodes[nid]);
+      const pages = tx.doc.pages.slice();
+      const taken = new Set(pages.map((p) => p.name));
+      const name = util.nextName(page.name, taken);
+      const next = {
+        id: util.uid('pg', pages.map((p) => p.id)), name, slug: schema.uniqueSlug(tx.doc, name),
+        root: idMap[page.root], seo: util.deepClone(page.seo)
+      };
+      const at = pages.findIndex((p) => p.id === pageId) + 1;
+      pages.splice(at, 0, next);
+      tx.setDocField('pages', pages);
+      return next.id;
+    });
+  }
+
+  /** removePage(target, pageId) → boolean (refuses to remove the last remaining page). */
+  function removePage(target, pageId) {
+    const { store } = resolve(target);
+    const doc = store.doc;
+    const pages = doc.pages || [];
+    if (pages.length <= 1) return false;
+    const page = pages.find((p) => p.id === pageId);
+    if (!page) return false;
+    return store.transact('Delete page', (tx) => {
+      if (doc.nodes[page.root]) tx.removeNode(page.root);
+      tx.setDocField('pages', tx.doc.pages.filter((p) => p.id !== pageId));
+      return true;
+    });
+  }
+
+  /** reorderPages(target, orderedIds) → boolean; orderedIds must be a permutation of the current page ids. */
+  function reorderPages(target, orderedIds) {
+    const { store } = resolve(target);
+    const doc = store.doc;
+    const byId = new Map((doc.pages || []).map((p) => [p.id, p]));
+    const next = (Array.isArray(orderedIds) ? orderedIds : []).map((id) => byId.get(id)).filter(Boolean);
+    if (next.length !== (doc.pages || []).length) return false;
+    return store.transact('Reorder pages', (tx) => { tx.setDocField('pages', next); return true; });
+  }
+
+  /** renamePage(target, pageId, name) → boolean; also renames the page's root node to match. */
+  function renamePage(target, pageId, name) {
+    const { store } = resolve(target);
+    const doc = store.doc;
+    const idx = (doc.pages || []).findIndex((p) => p.id === pageId);
+    if (idx === -1) return false;
+    const clean = String(name || '').trim().slice(0, 120) || doc.pages[idx].name;
+    return store.transact('Rename page', (tx) => {
+      const pages = tx.doc.pages.slice();
+      pages[idx] = Object.assign({}, pages[idx], { name: clean });
+      tx.setDocField('pages', pages);
+      if (tx.doc.nodes[pages[idx].root]) tx.updateNode(pages[idx].root, { name: clean }, { bp: null });
+      return true;
+    });
+  }
+
+  /** setPageSeo(target, pageId, patch) → boolean; shallow-merges into that page's `seo`. */
+  function setPageSeo(target, pageId, patch) {
+    const { store } = resolve(target);
+    const doc = store.doc;
+    const idx = (doc.pages || []).findIndex((p) => p.id === pageId);
+    if (idx === -1 || !util.isPlainObject(patch)) return false;
+    return store.transact('Edit page SEO', (tx) => {
+      const pages = tx.doc.pages.slice();
+      pages[idx] = Object.assign({}, pages[idx], { seo: Object.assign({}, pages[idx].seo, patch) });
+      tx.setDocField('pages', pages);
+      return true;
+    });
+  }
+
   /* ------------------------------------------------------------- components */
 
   function createComponent(target, ids, opts) {
@@ -1514,6 +1609,7 @@ APB.define('docops', ['util', 'geometry', 'schema'], function (util, geometry, s
     insert, remove, duplicate, move, setBox, update, reparent,
     group, ungroup, wrap, align, distribute, tidy, radial, matchSize, zorder,
     setLocked, setHidden, fitGroup, makeResponsive,
+    createPage, duplicatePage, removePage, reorderPages, renamePage, setPageSeo,
     createComponent, instantiate, detach,
     worldBox, worldBounds, toLocal, topLevel, sortDocOrder, isLocked
   };

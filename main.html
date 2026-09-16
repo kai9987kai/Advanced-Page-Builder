@@ -6,7 +6,7 @@
 <meta name="color-scheme" content="light dark">
 <meta name="description" content="Advanced Page Builder — a zero-dependency visual web page builder that runs entirely in your browser.">
 <meta name="generator" content="Advanced Page Builder 2.0.0">
-<!-- Advanced Page Builder v2.0.0 · built 2026-09-16T18:21:28.221Z · single-file build of src/index.html -->
+<!-- Advanced Page Builder v2.0.0 · built 2026-09-16T18:46:34.471Z · single-file build of src/index.html -->
 <title>Advanced Page Builder</title>
 
 <style data-src="css/tokens.css">
@@ -26035,6 +26035,12 @@ APB.define('element-types-extra', ['elements', 'util'], function (elements, util
 
   return { registered: true };
 });
+
+// Registration is a side effect of the factory running, so require it eagerly at script-load time
+// (nothing else needs `element-types-extra`'s return value) rather than waiting for a lazy caller
+// that may never come, the way `element-types` piggybacks on `elements`'s own first-use hook.
+// Skipped when there's no DOM (the unit-test vm context): tests that need it require it themselves.
+if (typeof document !== 'undefined') APB.require('element-types-extra');
 </script>
 <script data-src="js/features/actions.js">
 /*
@@ -26187,19 +26193,22 @@ APB.define('element-types-extra', ['elements', 'util'], function (elements, util
           });
         }
 
-        return {
-          el,
-          update(nodes) {
-            const n = nodes && nodes.length === 1 ? nodes[0] : null;
-            if (!n) { node = null; return; }
-            node = n;
-            const sig = JSON.stringify(n.actions || []);
-            if (sig === renderedSig) return;
-            renderedSig = sig;
-            renderList(n.actions || []);
-          },
-          destroy() {}
-        };
+        function update(nodes) {
+          const n = nodes && nodes.length === 1 ? nodes[0] : null;
+          if (!n) { node = null; return; }
+          node = n;
+          const sig = JSON.stringify(n.actions || []);
+          if (sig === renderedSig) return;
+          renderedSig = sig;
+          renderList(n.actions || []);
+        }
+
+        // `buildExternal` mounts but does not immediately call update() — the section would stay
+        // empty until some unrelated store event happens to schedule the next inspector refresh.
+        // Seed it from the current selection right away.
+        update(store.selection.map((id) => store.doc.nodes[id]).filter(Boolean));
+
+        return { el, update, destroy() {} };
       }
 
       app.ui.registerInspectorSection({
@@ -26382,6 +26391,12 @@ APB.define('templates', ['util'], function (util) {
 
   return api;
 });
+
+// The APB.plugin(...) call above only runs once this module is required — force that now (script
+// load time, well before app.js's plugin loop) instead of waiting for a lazy caller. Skipped
+// without a DOM (the unit-test vm context): pure-function tests require the module themselves and
+// never need the plugin side effect.
+if (typeof document !== 'undefined') APB.require('templates');
 </script>
 <script data-src="js/features/library.js">
 /* stub — owned by C2 */
@@ -26872,6 +26887,12 @@ APB.define('exporters', ['schema', 'vdom', 'style', 'sanitize', 'util', 'actions
 
   return api;
 });
+
+// The APB.plugin(...) call above only runs once this module is required — force that now (script
+// load time, well before app.js's plugin loop) instead of waiting for a lazy caller. Skipped
+// without a DOM (the unit-test vm context): pure-function tests require the module themselves and
+// never need the plugin side effect.
+if (typeof document !== 'undefined') APB.require('exporters');
 </script>
 <script data-src="js/features/preview.js">
 /*

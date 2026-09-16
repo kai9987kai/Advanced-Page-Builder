@@ -148,19 +148,22 @@
           });
         }
 
-        return {
-          el,
-          update(nodes) {
-            const n = nodes && nodes.length === 1 ? nodes[0] : null;
-            if (!n) { node = null; return; }
-            node = n;
-            const sig = JSON.stringify(n.actions || []);
-            if (sig === renderedSig) return;
-            renderedSig = sig;
-            renderList(n.actions || []);
-          },
-          destroy() {}
-        };
+        function update(nodes) {
+          const n = nodes && nodes.length === 1 ? nodes[0] : null;
+          if (!n) { node = null; return; }
+          node = n;
+          const sig = JSON.stringify(n.actions || []);
+          if (sig === renderedSig) return;
+          renderedSig = sig;
+          renderList(n.actions || []);
+        }
+
+        // `buildExternal` mounts but does not immediately call update() — the section would stay
+        // empty until some unrelated store event happens to schedule the next inspector refresh.
+        // Seed it from the current selection right away.
+        update(store.selection.map((id) => store.doc.nodes[id]).filter(Boolean));
+
+        return { el, update, destroy() {} };
       }
 
       app.ui.registerInspectorSection({

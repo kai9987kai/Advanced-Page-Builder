@@ -661,4 +661,61 @@ export default function (APB, t) {
     assert.throws(() => docops.move({}, ids, 1, 1), /first argument must be the app or a store/);
     assert.deepEqual(docops.topLevel(store.doc, [section, ids[0], 'n_missing0']), [section]);
   });
+
+  test('pages: create appends (or inserts at index), duplicate re-ids the whole subtree, remove refuses the last page', () => {
+    const { store } = setup();
+    const firstPageId = store.doc.pages[0].id;
+    const id2 = undoExact(store, () => docops.createPage(store, { name: 'About' }));
+    assert.equal(store.doc.pages.length, 2);
+    assert.equal(store.doc.pages[1].id, id2);
+    assert.equal(store.doc.pages[1].name, 'About');
+    assert.equal(store.doc.pages[1].slug, 'about');
+    assert.ok(store.doc.nodes[store.doc.pages[1].root], 'a fresh page root node exists');
+
+    const id0 = undoExact(store, () => docops.createPage(store, { name: 'Home2', index: 0 }));
+    assert.equal(store.doc.pages[0].id, id0, 'index:0 inserts before the existing pages');
+
+    const dupId = undoExact(store, () => docops.duplicatePage(store, firstPageId));
+    const original = store.doc.pages.find((p) => p.id === firstPageId);
+    const dup = store.doc.pages.find((p) => p.id === dupId);
+    assert.notEqual(dup.root, original.root, 'the duplicate gets a fresh root id');
+    assert.notEqual(dup.slug, original.slug);
+    assert.equal(store.doc.nodes[dup.root].type, 'page');
+    valid(store);
+
+    assert.equal(docops.removePage(store, 'nope'), false);
+    while (store.doc.pages.length > 1) {
+      const before = store.doc.pages.length;
+      const removed = store.doc.pages[store.doc.pages.length - 1].id;
+      const rootId = store.doc.pages[store.doc.pages.length - 1].root;
+      assert.equal(docops.removePage(store, removed), true);
+      assert.equal(store.doc.pages.length, before - 1);
+      assert.ok(!store.doc.nodes[rootId], 'the removed page root node is gone too');
+    }
+    assert.equal(docops.removePage(store, store.doc.pages[0].id), false, 'refuses to remove the last page');
+  });
+
+  test('pages: reorder validates a full permutation, rename updates the root node name too, setPageSeo merges', () => {
+    const { store } = setup();
+    const p2 = docops.createPage(store, { name: 'Two' });
+    const p3 = docops.createPage(store, { name: 'Three' });
+    const p1 = store.doc.pages[0].id;
+
+    assert.equal(docops.reorderPages(store, [p1, p2]), false, 'must include every page id');
+    assert.equal(docops.reorderPages(store, [p3, p1, p2]), true);
+    assert.deepEqual(store.doc.pages.map((p) => p.id), [p3, p1, p2]);
+
+    assert.equal(docops.renamePage(store, p1, '  Landing  '), true);
+    const renamed = store.doc.pages.find((p) => p.id === p1);
+    assert.equal(renamed.name, 'Landing');
+    assert.equal(N(store, renamed.root).name, 'Landing', 'the root node name follows the page name');
+    assert.equal(docops.renamePage(store, 'nope', 'x'), false);
+
+    assert.equal(docops.setPageSeo(store, p1, { title: 'Landing page', noindex: true }), true);
+    const seo = store.doc.pages.find((p) => p.id === p1).seo;
+    assert.equal(seo.title, 'Landing page');
+    assert.equal(seo.noindex, true);
+    assert.equal(seo.description, '', 'untouched fields keep their previous value');
+    assert.equal(docops.setPageSeo(store, 'nope', { title: 'x' }), false);
+  });
 }

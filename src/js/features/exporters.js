@@ -472,5 +472,7 @@ APB.define('exporters', ['schema', 'vdom', 'style', 'sanitize', 'util', 'actions
 });
 
 // The APB.plugin(...) call above only runs once this module is required — force that now (script
-// load time, well before app.js's plugin loop) instead of waiting for a lazy caller.
-APB.require('exporters');
+// load time, well before app.js's plugin loop) instead of waiting for a lazy caller. Skipped
+// without a DOM (the unit-test vm context): pure-function tests require the module themselves and
+// never need the plugin side effect.
+if (typeof document !== 'undefined') APB.require('exporters');

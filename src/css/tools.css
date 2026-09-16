@@ -1,7 +1,8 @@
 /*
- * tools — dialogs for the export/preview/templates tools (ARCHITECTURE.md §11; `features/exporters.js`,
- * `features/templates.js`). Shared panel primitives live in panels.css; this file only styles the
- * dialog bodies those two plugins build.
+ * tools — dialogs for the export/preview/templates/storage/pages/assets/components tools
+ * (ARCHITECTURE.md §10-11; `features/{exporters,templates,storage,pages,assets,components}.js`).
+ * Shared panel primitives live in panels.css; this file only styles the dialog bodies those
+ * plugins build.
  */
 
 /* ------------------------------------------------------------- export dialog */
@@ -138,4 +139,197 @@
 .apb-actions-field-label {
   font-size: var(--apb-font-size-xs);
   color: var(--apb-text-muted);
+}
+
+/* -------------------------------------------------------------- projects list */
+
+.apb-projects-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--apb-space-2);
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.apb-project-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--apb-space-3);
+  padding: var(--apb-space-3);
+  border: 1px solid var(--apb-border);
+  border-radius: var(--apb-radius-2);
+  background: var(--apb-surface);
+  cursor: pointer;
+}
+
+.apb-project-row:hover,
+.apb-project-row:focus-visible {
+  border-color: var(--apb-accent);
+  background: var(--apb-accent-soft);
+}
+
+.apb-project-row.is-current {
+  border-color: var(--apb-accent);
+}
+
+.apb-project-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.apb-project-row-name {
+  font-size: var(--apb-font-size-md);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.apb-project-row-date {
+  font-size: var(--apb-font-size-xs);
+  color: var(--apb-text-muted);
+}
+
+.apb-autosave-status {
+  font-size: var(--apb-font-size-xs);
+  color: var(--apb-text-muted);
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------- pages */
+
+.apb-pages-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--apb-space-2);
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.apb-page-row {
+  display: flex;
+  align-items: center;
+  gap: var(--apb-space-2);
+  padding: var(--apb-space-2) var(--apb-space-3);
+  border: 1px solid var(--apb-border);
+  border-radius: var(--apb-radius-2);
+  background: var(--apb-surface);
+}
+
+.apb-page-row.is-active {
+  border-color: var(--apb-accent);
+  background: var(--apb-accent-soft);
+}
+
+.apb-page-row-name {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.apb-page-seo-form {
+  display: grid;
+  gap: var(--apb-space-3);
+}
+
+/* ------------------------------------------------------------------ assets */
+
+.apb-assets-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: var(--apb-space-2);
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.apb-asset-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--apb-space-2);
+  border: 1px solid var(--apb-border);
+  border-radius: var(--apb-radius-2);
+  background: var(--apb-surface);
+  cursor: pointer;
+  text-align: left;
+}
+
+.apb-asset-card:hover,
+.apb-asset-card:focus-visible {
+  border-color: var(--apb-accent);
+}
+
+.apb-asset-card-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 64px;
+  border-radius: var(--apb-radius-1);
+  background: var(--apb-surface-2);
+  overflow: hidden;
+}
+
+.apb-asset-card-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.apb-asset-card-name {
+  font-size: var(--apb-font-size-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.apb-asset-drop {
+  border: 1px dashed var(--apb-border-strong);
+  border-radius: var(--apb-radius-2);
+  padding: var(--apb-space-4);
+  text-align: center;
+  color: var(--apb-text-muted);
+  font-size: var(--apb-font-size-sm);
+}
+
+.apb-asset-drop.is-dragover {
+  border-color: var(--apb-accent);
+  background: var(--apb-accent-soft);
+}
+
+/* -------------------------------------------------------------- components */
+
+.apb-components-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--apb-space-2);
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.apb-component-row {
+  display: flex;
+  align-items: center;
+  gap: var(--apb-space-2);
+  padding: var(--apb-space-2) var(--apb-space-3);
+  border: 1px solid var(--apb-border);
+  border-radius: var(--apb-radius-2);
+  background: var(--apb-surface);
+  cursor: pointer;
+  text-align: left;
+}
+
+.apb-component-row:hover,
+.apb-component-row:focus-visible {
+  border-color: var(--apb-accent);
+  background: var(--apb-accent-soft);
+}
+
+.apb-component-row-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

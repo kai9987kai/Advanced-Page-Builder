@@ -85,6 +85,7 @@ APB.version                       // '2.0.0'
 | `vdom` | core/vdom.js | VNode → DOM / HTML string, full-tree builder (incl. instance expansion) |
 | `snapping` | core/snapping.js | snap engine (pure) |
 | `docops` | core/docops.js | high-level document operations |
+| `actions` | core/actions.js | click/change node interactions: types, `normalize()`, the exported-page runtime |
 | `viewport` | canvas/viewport.js | camera, zoom/pan, rulers |
 | `renderer` | canvas/renderer.js | document → editor DOM |
 | `overlay` | canvas/overlay.js | selection UI, guides, marquee, measurements |
@@ -824,3 +825,149 @@ _(Implementers: append dated entries here when you extend a contract.)_
   the selection it remembers, because this view is only shown when nothing is selected.
 - Prefs added: `inspector: { sections: { [sectionId]: collapsed } }`.
 - `src/css/panels.css` gained the `inspector` + `doc styles` sections at the end of the file.
+
+### 2026-09-16 — C2/C3 `actions`, `checklist`, `templates`, `exporters`, `preview`
+Interactivity, a starter-section gallery, and the export/preview tools, filling in the `checklist`,
+`templates`, `element-types-extra`, `exporters` and `preview` slots ahead of their originally
+planned order. `services.exporters`/`services.preview` (§9) are real now.
+
+- **`node.actions`** (new node key, §5.1): `[{ id, trigger: 'click'|'change', type, ...type fields }]`.
+  Added to `schema.NODE_KEYS` (required — `docops.update`/`store.updateNode` silently drop, then
+  throw on, any key not listed there) but *not* `BP_KEYS`, so — like `motion`/`attrs`/`css` — it
+  never becomes a breakpoint override; writers should still pass `{ bp: null }` for clarity.
+  `schema.baseNode` defaults it to `[]`; `normalizeNodeFields` keeps only plain objects with a
+  string `type`, deferring real validation to `actions.normalize()`.
+- **`core/actions.js`** (pure, deps `util sanitize`): `TYPES` (`link scrollTo toggle show hide
+  toggleClass submit code`, each `{ id, label, icon, fields: [{ key, label, kind, placeholder? }] }`,
+  `kind` one of `url toggle target text code`) · `has(type)` · `fieldsFor(type)` ·
+  `triggerFor(nodeType)` (`button→click`, `checklist→change`, default `click`) ·
+  `create(type, nodeType)` → new action with empty-but-typed fields · `normalize(list, { doc,
+  sanitizeUrl })` → clean array (drops unknown types, re-sanitizes `url` via `sanitize.url(…,
+  'link')`, clamps `code` to `MAX_CODE` (20 000) and the list to `MAX_ACTIONS` (40), drops a
+  `target` that isn't a real id in `doc.nodes` when `doc` is given) · `describe(action)` → one-line
+  summary for a collapsed row · `runtimeSource()` → the trusted `<script>` body (see below).
+- **`vdom` decorate()** (now depends on `actions` too) sets `data-apb-actions="<json>"` on a node's
+  root element whenever `eff.actions` is non-empty, in *every* mode — inert in the editor (nothing
+  listens), consumed by the runtime in export/preview. It always re-runs `actions.normalize(eff
+  .actions, { doc: env.doc })` first, so this is the one choke point that guarantees a safe/sane
+  payload regardless of how the document reached this state (typed in the UI, pasted, imported).
+- **Runtime** (`actions.runtimeSource()`, appended by `exporters.html()`/`preview.js` as a hand-written
+  trusted `<script>` string — vdom's own tag whitelist bans `<script>`, so this never goes through
+  the node tree): one delegated listener per `(element, trigger)`, reading `data-apb-actions`.
+  `link` navigates (`newTab` → `window.open(…, 'noopener')`); `scrollTo/toggle/show/hide` resolve
+  `[data-node-id="target"]` (`toggle` flips current `display`); `toggleClass` needs `target` +
+  `className`; `submit` calls `el.closest('form').requestSubmit()`; `code` runs
+  `new Function('event','el','document','window', a.code)` with `this`/`el` = the action's own
+  element — the same trust boundary as `node.css` / `settings.globalCSS`: the *site owner's* code,
+  never executed in the editor, only in the page they export or preview.
+- **`features/actions.js`** (plugin `actionsUI`, order 42; not `@node-testable`, DOM-only): the
+  inspector "Actions" section via `ui.registerInspectorSection` — single-selection only, `applies`
+  when the one selected node is `button` or `checklist`. `mount(container)` seeds itself from
+  `store.selection` immediately (**`buildExternal` does not call `update()` right after `mount()`**
+  — it only arrives on the next unrelated store `change`/`selection` event via `syncAll()`; every
+  external inspector section must self-seed or it renders empty until something else happens to
+  refresh the panel). Field controls are generated from `actions.TYPES[].fields` (`url→text[type=url]`,
+  `toggle→widgets.toggle`, `target→widgets.select` populated from the current page's node tree,
+  `code→widgets.textArea({monospace:true})`); writes go through `docops.update(app, [id], {actions},
+  {bp:null, coalesce:'actions:<nodeId>:<fieldKey>#<burst>'})`, one burst per field so a typing/drag
+  session collapses to one undo entry (same pattern as `features/inspector.js`'s `burstKey`).
+  DOM: `.apb-actions-section`, `.apb-actions-card`, `.apb-actions-field[--toggle|--code]`.
+- **`checklist` element type** (`features/element-types-extra.js`, plugin-free module — the file is
+  `@node-testable` and self-requires at the bottom so registration isn't left to a lazy caller that
+  may never come): category `text`, `bpProps: ['items']`, `props.items: [{ id, text, checked }]`
+  (3 seeded by default). Renders `<ul class="apb-checklist"><li><input type=checkbox
+  class="apb-checklist-input" data-item-id data-apb-actions-on-root><span
+  class="apb-checklist-text">`; editor mode adds `tabindex=-1` to the checkboxes (no `data-href`-style
+  trick needed — nothing else intercepts checkbox clicks, so this is purely a keyboard-nav nicety).
+  A checked checkbox's native `change` event bubbles to the `<ul>` root, which is what the actions
+  runtime listens on; the handler's `event.target.dataset.itemId`/`.checked` identify which item
+  changed. Inspector: one `{ key: 'props.items', type: 'list', checkable: true }` field (see next
+  point). Icon `checklist` self-registered via `icons.add` (idempotent).
+- **`listEditor` (the `list` FIELD_TYPE control, `features/inspector.js`)** gained `o.checkable`:
+  items become `{ id, text, checked }` objects with a `widgets.toggle` per row instead of plain
+  strings; a field spec opts in with `checkable: true` (only `checklist` uses it so far). Plain
+  (non-checkable) behaviour is unchanged — this was an additive, backward-compatible change.
+- **Canvas tools**: `button` (`B`) and `checklist` (`C`) added to `interaction.js`'s `DRAW_TOOLS` /
+  `TOOL_KEYS` (default sizes 160×48 / 280×140, otherwise fully generic — no `edit`/`pick`/`root`/
+  `flat` flags, so click-to-place and drag-to-size just work through the existing machinery),
+  `canvas.js`'s `TOOLS` array and `shell.js`'s `TOOL_LABELS` map (the only *hardcoded* one — toolbar
+  buttons, `Insert` menu registration and `services.*` wiring are all extensible from outside shell.js).
+- **`features/templates.js`** (`@node-testable`; module `templates` + plugin `templates`, order 45):
+  `list() → [{ id, label, icon, description }]`, `build(id) → spec|null` (deep-cloned, so callers can
+  mutate freely) for `hero`, `pricing`, `contact`. Every template's root is a `section` — per the A2
+  `docops` contract, `insert()` with no explicit `parent` already resolves sections to the current
+  page root, so `templates.js` never needs to know about pages/positioning. Built with the *stack*
+  layout model (`layout:{mode:'stack',…}`, `sizing.w:'fill'`/`'hug'`), not raw absolute x/y — this is
+  the deliberate improvement over free-canvas page-builder templates: they reflow instead of clipping.
+  `contact` embeds a real `<form>` via the `html` element type (`sanitize.html`'s `'html'` profile
+  whitelists `form input textarea label button` — confirmed, not assumed). UI: `insert.template`
+  command opens an `app.ui.dialog` grid of `.apb-template-card` buttons; picking one calls
+  `docops.insert` and zooms the canvas to the new selection. Auto-added to the `Insert` menu via
+  `ui.registerMenuItem({ menu: 'insert', command: 'insert.template' })` — `shell.js` already treats
+  `insert` as a first-class menu (`MENUS`), so nothing there needed to change. Icon `templates`
+  self-registered via `icons.add`.
+- **`features/exporters.js`** (`@node-testable`; module `exporters` + plugin `exporters`, order 60)
+  implements `services.exporters` (§11) as pure string-building functions (`html site zip json jsx`),
+  runnable in Node with no DOM:
+  - `html(doc, { pageId, minify, inlineAssets=true, includeHidden=false, sourceComment=true }) →
+    { html, css, files }`. Renders the base breakpoint once via `vdom.buildTree(…, { mode:'export',
+    classFor: id => 'n-'+shortid, onNode })` for the markup, collecting each node's `decls` (Map)
+    keyed by its class; re-renders once per *other* breakpoint (`includeHidden:true` on these passes
+    specifically, so a node that's only hidden at that breakpoint still yields a `display:none` diff
+    instead of silently vanishing from the CSS) and emits `style.diffDecls(base, thatBp)` inside
+    `@media (max-width:<bp.max>px)`. Also collects `style.hoverDecls` once (hover isn't
+    breakpoint-cascaded) and `style.tokensCSS` + sanitized `settings.globalCSS`. `motion`/`freeform`
+    opts from the original §11 contract are accepted but not yet implemented (no scale/center
+    freeform wrapper, no motion keyframes — `node.motion` has no writer anywhere yet either); real
+    work landed on `inlineAssets` (data: URLs, already the default via `doc.assets[id].src`) and
+    `inlineAssets:false` (extracts each `data:` asset to `assets/<name>-<n>.<ext>` via `atob`,
+    returned in `files`). `withIds` (`data-node-id`) and the actions `<script>` are included only
+    when `docHasActions(doc)` — a whole-document scan, not scoped to the exported page/its component
+    instances, trading a little export-size precision for a lot less code — is true. Emits a CSP
+    meta tag (`script-src 'self' 'unsafe-inline'` only when actions are present, so pages without
+    them stay stricter) and a `referrer` meta; SEO from `page.seo`. `exporters.html.snippet` gotcha
+    for anyone adding more hand-written trusted markup here: writing `'<!--'` and `'<script'` as
+    literal source in a file that itself gets inlined into `main.html`'s own `<script>` tag trips
+    `tools/build.mjs`'s script-safety scan — split them (`'<' + '!--'`) the way this file already
+    does for its `sourceComment` line.
+  - `site(doc, opts) → files` loops `doc.pages`, naming `index` → `index.html` else `<slug>.html`,
+    de-duping shared asset files across pages.
+  - `zip(files) → Blob`: zero-dependency STORE-method ZIP (no compression) with a table-based CRC-32;
+    hand-rolled local file header (30 B) / central directory record (46 B) / EOCD (22 B) per the ZIP
+    spec. **`Blob` had to be added to `tests/run.mjs`'s vm sandbox globals** — it's a stable Node ≥18
+    global (this project requires ≥20) but not part of bare ECMAScript, so `vm.createContext` doesn't
+    provide it automatically the way it does `Date`/`JSON`/etc.
+  - `json(doc)` → `JSON.stringify(doc, null, 2)` (the `.apb.json` project format, verbatim).
+  - `jsx(doc, { pageId }) → string`: a lower-fidelity, best-effort implementation relative to the
+    others (not part of the original ask) — walks the base-breakpoint tree with `inlineStyles: true`
+    (no class/media-query machinery reused) and serializes directly to JSX (`class→className`,
+    `style` object → `style={{...}}`, `html` → `dangerouslySetInnerHTML`). No breakpoint or hover
+    support yet.
+  - UI: `file.exportCode` command (`Mod+E`) + toolbar button (`area:'end'`, after `preview`) open an
+    `app.ui.dialog` with page/format/minify/inline-assets controls, a live `<pre class="apb-export-code">`
+    preview, Copy (clipboard API) and Download (Blob + synthetic `<a download>`, or `zip()` when
+    `inlineAssets` is off and there are files to bundle) actions.
+  - **Module-loading gotcha (cost real debugging time — read this before adding another such file):**
+    a file that's only `APB.define(name, deps, factory)` never runs its factory — and therefore never
+    runs any `elements.register`/`icons.add`/`APB.plugin` side effect inside it — until *something*
+    calls `APB.require(name)`. `element-types.js`'s core types work around this because `elements.js`
+    hardcodes a first-use `APB.require('element-types')`; nothing does that for feature modules. Fix:
+    end the file with `if (typeof document !== 'undefined') APB.require('<name>');` — eager in the
+    real app (script tags run before `app.js`'s `start()`, so this beats `shell.mount()` and the
+    plugin-init loop), a no-op in the unit-test vm sandbox (no `document`) where each test file's
+    `loadAPB()` gets a fresh module registry anyway and requires what it needs itself. Applies to
+    `exporters.js`, `templates.js` and `element-types-extra.js` — all three were silently inert
+    (plugin never registered, type never appears in `elements.get`) without this line.
+- **`features/preview.js`** (plugin `preview`, order 61; not `@node-testable`): `services.preview =
+  { open({ pageId }) }` — calls `services.exporters.html(doc, { pageId, sourceComment:false })`,
+  wraps the result in a `blob:` URL and `window.open`s it in a new tab (deliberately **not**
+  `'noopener'`: the target is a same-session blob we just created, not an external/untrusted URL, and
+  omitting it is what lets the return value double as popup-blocked detection — `window.open(...,
+  'noopener')` returns `null` on success too, so it can't tell "blocked" from "opened"). Not a live
+  preview — each click re-renders current state into a disposable static tab. `view.preview` command
+  (`Alt+P`) + toolbar button (`area:'end'`, order 20, first of the two).
+- Testing: `tests/run.mjs`'s vm sandbox gained `Blob` (see `zip()` above).
+  `tests/unit/{actions,exporters,element-types-extra,templates}.test.mjs` added.
+  `tests/e2e/scenarios/40-actions-templates-export.mjs` added; `13-canvas-tools.mjs` and
+  `21-shell.mjs` updated for the two new tool ids and the inspector-sections list now always
+  including `actions` (previously assumed no plugin pre-registers a real section).

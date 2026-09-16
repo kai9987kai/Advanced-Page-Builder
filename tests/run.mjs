@@ -59,7 +59,7 @@ export function loadAPB(options = {}) {
     crypto: globalThis.crypto,
     setTimeout, clearTimeout, setInterval, clearInterval, queueMicrotask,
     structuredClone, performance,
-    URL, URLSearchParams, TextEncoder, TextDecoder, atob, btoa,
+    URL, URLSearchParams, TextEncoder, TextDecoder, atob, btoa, Blob,
     ...(options.globals || {})
   };
   const context = vm.createContext(sandbox, { name: 'apb-unit' });
