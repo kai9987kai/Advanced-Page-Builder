@@ -98,7 +98,8 @@
 
 /* ------------------------------------------------------------------ actions */
 
-.apb-actions-section {
+.apb-actions-section,
+.apb-motion-section {
   display: flex;
   flex-direction: column;
   gap: var(--apb-space-3);

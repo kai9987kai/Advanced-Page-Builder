@@ -6,7 +6,7 @@
  * toHTML/buildTree/expandInstance are pure and work in Node; toDOM/patch return null (no-op)
  * when there is no DOM.
  */
-APB.define('vdom', ['util', 'schema', 'sanitize', 'elements', 'style', 'actions'], function (util, schema, sanitize, elements, style, actionsMod) {
+APB.define('vdom', ['util', 'schema', 'sanitize', 'elements', 'style', 'actions', 'motion'], function (util, schema, sanitize, elements, style, actionsMod, motionMod) {
   'use strict';
 
   const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -445,6 +445,10 @@ APB.define('vdom', ['util', 'schema', 'sanitize', 'elements', 'style', 'actions'
         if (clean.length) {
           try { a['data-apb-actions'] = JSON.stringify(clean); } catch (err) { /* non-serializable action data is dropped */ }
         }
+      }
+      if (eff.motion) {
+        const cleanMotion = motionMod.normalize(eff.motion);
+        if (cleanMotion) a['data-apb-motion'] = cleanMotion.trigger;
       }
     }
     if ((env.inlineStyles || ro.decorate === false) && decls.size) v.style = style.declsToObject(decls);

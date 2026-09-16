@@ -6,7 +6,7 @@
 <meta name="color-scheme" content="light dark">
 <meta name="description" content="Advanced Page Builder — a zero-dependency visual web page builder that runs entirely in your browser.">
 <meta name="generator" content="Advanced Page Builder 2.0.0">
-<!-- Advanced Page Builder v2.0.0 · built 2026-09-16T19:16:22.499Z · single-file build of src/index.html -->
+<!-- Advanced Page Builder v2.0.0 · built 2026-09-16T21:31:42.421Z · single-file build of src/index.html -->
 <title>Advanced Page Builder</title>
 
 <style data-src="css/tokens.css">
@@ -4081,7 +4081,8 @@ html.apb-scrubbing * {
 
 /* ------------------------------------------------------------------ actions */
 
-.apb-actions-section {
+.apb-actions-section,
+.apb-motion-section {
   display: flex;
   flex-direction: column;
   gap: var(--apb-space-3);
@@ -9348,7 +9349,7 @@ APB.define('style', ['util', 'schema', 'sanitize', 'elements'], function (util, 
  * toHTML/buildTree/expandInstance are pure and work in Node; toDOM/patch return null (no-op)
  * when there is no DOM.
  */
-APB.define('vdom', ['util', 'schema', 'sanitize', 'elements', 'style', 'actions'], function (util, schema, sanitize, elements, style, actionsMod) {
+APB.define('vdom', ['util', 'schema', 'sanitize', 'elements', 'style', 'actions', 'motion'], function (util, schema, sanitize, elements, style, actionsMod, motionMod) {
   'use strict';
 
   const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -9787,6 +9788,10 @@ APB.define('vdom', ['util', 'schema', 'sanitize', 'elements', 'style', 'actions'
         if (clean.length) {
           try { a['data-apb-actions'] = JSON.stringify(clean); } catch (err) { /* non-serializable action data is dropped */ }
         }
+      }
+      if (eff.motion) {
+        const cleanMotion = motionMod.normalize(eff.motion);
+        if (cleanMotion) a['data-apb-motion'] = cleanMotion.trigger;
       }
     }
     if ((env.inlineStyles || ro.decorate === false) && decls.size) v.style = style.declsToObject(decls);
@@ -12178,6 +12183,145 @@ APB.define('actions', ['util', 'sanitize'], function (util, sanitize) {
   }
 
   return { TYPES, has, fieldsFor, triggerFor, create, normalize, describe, runtimeSource, MAX_ACTIONS, MAX_CODE };
+});
+</script>
+<script data-src="js/core/motion.js">
+/* @node-testable */
+/*
+ * motion — animation presets for `node.motion` (ARCHITECTURE.md §5.1: `{ preset, duration, delay,
+ * easing, trigger: 'enter'|'load' }`). Pure (no DOM); consumed by `features/motion.js` (the
+ * inspector "Animation" section + a Web Animations API canvas preview) and `features/exporters.js`
+ * (which appends `keyframesCSS()` + `runtimeSource()` — a trusted `<script>`, same reasoning as
+ * `core/actions.js` — only when `usesMotion(doc)` is true). See ARCHITECTURE.md §11 for the export
+ * contract this fulfils: "@keyframes + scroll-driven animation-timeline: view() with an
+ * IntersectionObserver fallback script only when motion is used" and reduced-motion support.
+ */
+APB.define('motion', ['util'], function (util) {
+  'use strict';
+
+  const MAX_MS = 10000;
+  const TRIGGERS = new Set(['enter', 'load']);
+  const EASINGS = ['ease', 'ease-in', 'ease-out', 'ease-in-out', 'linear'];
+
+  /** Each preset's `from`/`to` (and optional `mid` steps) are plain CSS declarations — kebab-case, trusted (authored here, never user input). */
+  const PRESETS = [
+    { id: 'fade', label: 'Fade in', from: { opacity: '0' }, to: { opacity: '1' } },
+    { id: 'slide-up', label: 'Slide up', from: { opacity: '0', transform: 'translateY(24px)' }, to: { opacity: '1', transform: 'translateY(0)' } },
+    { id: 'slide-down', label: 'Slide down', from: { opacity: '0', transform: 'translateY(-24px)' }, to: { opacity: '1', transform: 'translateY(0)' } },
+    { id: 'slide-left', label: 'Slide from right', from: { opacity: '0', transform: 'translateX(24px)' }, to: { opacity: '1', transform: 'translateX(0)' } },
+    { id: 'slide-right', label: 'Slide from left', from: { opacity: '0', transform: 'translateX(-24px)' }, to: { opacity: '1', transform: 'translateX(0)' } },
+    { id: 'zoom-in', label: 'Zoom in', from: { opacity: '0', transform: 'scale(0.9)' }, to: { opacity: '1', transform: 'scale(1)' } },
+    { id: 'zoom-out', label: 'Zoom out', from: { opacity: '0', transform: 'scale(1.08)' }, to: { opacity: '1', transform: 'scale(1)' } },
+    {
+      id: 'bounce', label: 'Bounce in',
+      from: { opacity: '0', transform: 'translateY(16px) scale(0.96)' },
+      mid: [{ at: 60, decls: { opacity: '1', transform: 'translateY(-6px) scale(1.01)' } }, { at: 80, decls: { transform: 'translateY(2px) scale(0.995)' } }],
+      to: { opacity: '1', transform: 'translateY(0) scale(1)' }
+    },
+    { id: 'flip', label: 'Flip in', from: { opacity: '0', transform: 'rotateX(-50deg)' }, to: { opacity: '1', transform: 'rotateX(0)' } }
+  ];
+
+  const BY_ID = new Map(PRESETS.map((p) => [p.id, p]));
+
+  const has = (id) => BY_ID.has(id);
+  const list = () => PRESETS.map((p) => ({ id: p.id, label: p.label }));
+
+  function keyframesName(presetId) { return 'apb-mo-' + presetId; }
+
+  function declsToCss(decls) {
+    return Object.keys(decls).map((k) => k + ':' + decls[k]).join(';');
+  }
+
+  /** keyframesCSS(presetId) → '@keyframes apb-mo-fade{from{...}to{...}}' ('' for an unknown id). */
+  function keyframesCSS(presetId) {
+    const p = BY_ID.get(presetId);
+    if (!p) return '';
+    const steps = [['0%', p.from]].concat((p.mid || []).map((m) => [m.at + '%', m.decls])).concat([['100%', p.to]]);
+    return '@keyframes ' + keyframesName(presetId) + '{' + steps.map(([pct, decls]) => pct + '{' + declsToCss(decls) + '}').join('') + '}';
+  }
+
+  /** normalize(motion, { doc }) → clean { preset, duration, delay, easing, trigger } | null. */
+  function normalize(motion) {
+    if (!util.isPlainObject(motion) || !has(motion.preset)) return null;
+    const duration = Number.isFinite(motion.duration) ? util.clamp(Math.round(motion.duration), 50, MAX_MS) : 500;
+    const delay = Number.isFinite(motion.delay) ? util.clamp(Math.round(motion.delay), 0, MAX_MS) : 0;
+    const easing = EASINGS.includes(motion.easing) ? motion.easing : 'ease-out';
+    const trigger = TRIGGERS.has(motion.trigger) ? motion.trigger : 'enter';
+    return { preset: motion.preset, duration, delay, easing, trigger };
+  }
+
+  /** framesFor(presetId) → KeyframeEffect-compatible frames, for the Web Animations API canvas preview. */
+  function framesFor(presetId) {
+    const p = BY_ID.get(presetId);
+    if (!p) return null;
+    // `opacity`/`transform` are valid Web Animations API property names as-is (no camelCase
+    // conversion needed — the only two CSS properties any preset uses happen to already match).
+    const frames = [Object.assign({ offset: 0 }, p.from)];
+    (p.mid || []).forEach((m) => frames.push(Object.assign({ offset: m.at / 100 }, m.decls)));
+    frames.push(Object.assign({ offset: 1 }, p.to));
+    return frames;
+  }
+
+  /** nodeCSS(className, motion) → the CSS to emit for one node's animation (base/inview/reduced-motion rules). */
+  function nodeCSS(className, motion) {
+    const clean = normalize(motion);
+    if (!clean) return '';
+    const p = BY_ID.get(clean.preset);
+    const base = '.' + className + '{' + declsToCss(p.from) + '}';
+    const anim = 'animation:' + keyframesName(clean.preset) + ' ' + clean.duration + 'ms ' + clean.easing + ' ' + clean.delay + 'ms both;';
+    const active = clean.trigger === 'load'
+      ? '.' + className + '{' + anim + '}'
+      : '.' + className + '.apb-inview{' + anim + '}';
+    const scrollDriven = clean.trigger === 'enter'
+      ? '@supports (animation-timeline:view()){.' + className + '{' + anim + 'animation-timeline:view();animation-range:entry 0% cover 35%;}}'
+      : '';
+    // Cancelling the animation alone would leave the element stuck in its `from` state (e.g.
+    // invisible) forever, since that's what `base` sets unconditionally — reduced-motion needs to
+    // land on `to` instead, not just turn the animation off.
+    const reduced = '@media (prefers-reduced-motion:reduce){.' + className + '{animation:none!important;'
+      + Object.keys(p.to).map((k) => k + ':' + p.to[k] + ' !important').join(';') + '}}';
+    return base + active + scrollDriven + reduced;
+  }
+
+  /** usesMotion(doc) → true if any node carries a recognized motion preset (gates the export runtime + withIds-free CSS). */
+  function usesMotion(doc) {
+    const nodes = doc && doc.nodes;
+    if (!util.isPlainObject(nodes)) return false;
+    for (const id of Object.keys(nodes)) {
+      const n = nodes[id];
+      if (n && normalize(n.motion)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Trusted runtime appended verbatim by exporters/preview (never through vdom/sanitize) when
+   * `usesMotion(doc)` is true: an IntersectionObserver adds `.apb-inview` to `[data-apb-motion="enter"]`
+   * elements (the `@supports` scroll-timeline rule in `nodeCSS` takes over instead, in browsers that
+   * support it — the class is harmless there); `[data-apb-motion="load"]` elements animate immediately
+   * via `nodeCSS` alone and need no script. `prefers-reduced-motion` disables everything in CSS, so
+   * this script only ever toggles a class — nothing here needs to check it itself.
+   */
+  function runtimeSource() {
+    return '(function(){\n' +
+      '  if (!("IntersectionObserver" in window)) {\n' +
+      '    document.querySelectorAll(\'[data-apb-motion="enter"]\').forEach(function (el) { el.classList.add("apb-inview"); });\n' +
+      '    return;\n' +
+      '  }\n' +
+      '  var io = new IntersectionObserver(function (entries) {\n' +
+      '    entries.forEach(function (entry) {\n' +
+      '      if (entry.isIntersecting) { entry.target.classList.add("apb-inview"); io.unobserve(entry.target); }\n' +
+      '    });\n' +
+      '  }, { threshold: 0.2 });\n' +
+      '  function apbMotionInit(root) {\n' +
+      '    (root || document).querySelectorAll(\'[data-apb-motion="enter"]\').forEach(function (el) { io.observe(el); });\n' +
+      '  }\n' +
+      '  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", function () { apbMotionInit(document); });\n' +
+      '  else apbMotionInit(document);\n' +
+      '})();';
+  }
+
+  return { PRESETS, EASINGS, has, list, normalize, keyframesName, keyframesCSS, nodeCSS, framesFor, usesMotion, runtimeSource };
 });
 </script>
 <!-- canvas (B1) -->
@@ -27556,9 +27700,12 @@ if (typeof document !== 'undefined') APB.require('templates');
  * the class name is a short id (`n-<id>`), stable across breakpoints so the diff lines up.
  * A `<script>` with `actions.runtimeSource()` is appended only when the document actually uses
  * node actions (`core/actions.js`); that's also the only time nodes get `data-node-id`, since the
- * runtime targets other nodes by it.
+ * runtime targets other nodes by it. Likewise `motion.runtimeSource()` (an IntersectionObserver
+ * that adds `.apb-inview`) is appended only when any node has an animation preset (`core/motion.js`);
+ * unlike actions it needs no `data-node-id` (it matches on `[data-apb-motion]`, not by other nodes'
+ * ids), and both runtimes share one `<script>` tag when a document uses both.
  */
-APB.define('exporters', ['schema', 'vdom', 'style', 'sanitize', 'util', 'actions'], function (schema, vdom, style, sanitize, util, actionsMod) {
+APB.define('exporters', ['schema', 'vdom', 'style', 'sanitize', 'util', 'actions', 'motion'], function (schema, vdom, style, sanitize, util, actionsMod, motionMod) {
   'use strict';
 
   function shortClass(id) {
@@ -27662,12 +27809,15 @@ APB.define('exporters', ['schema', 'vdom', 'style', 'sanitize', 'util', 'actions
     if (!page || !doc.nodes[page.root]) return null;
     const minify = !!o.minify;
     const withActions = docHasActions(doc);
+    const withMotion = o.motion !== false && motionMod.usesMotion(doc);
     const classFor = (eff) => shortClass(eff.id);
     const baseBp = style.breakpoint(doc, undefined);
     const { assetURL, files } = assetResolver(doc, o);
 
     const baseClasses = new Map();
     const hoverRules = [];
+    const motionRules = [];
+    const motionPresets = new Set();
     const htmlTree = vdom.buildTree(doc, page.root, {
       mode: 'export', bp: baseBp.id, classFor, withIds: withActions, includeHidden: !!o.includeHidden, assetURL,
       onNode: (info) => {
@@ -27675,6 +27825,10 @@ APB.define('exporters', ['schema', 'vdom', 'style', 'sanitize', 'util', 'actions
         baseClasses.set(cls, info.decls);
         const hover = style.hoverDecls(info.node, doc);
         if (hover.size) hoverRules.push({ cls, decls: hover });
+        if (withMotion && info.node.motion) {
+          const clean = motionMod.normalize(info.node.motion);
+          if (clean) { motionRules.push(motionMod.nodeCSS(cls, info.node.motion)); motionPresets.add(clean.preset); }
+        }
       }
     });
     if (!htmlTree) return null;
@@ -27704,13 +27858,18 @@ APB.define('exporters', ['schema', 'vdom', 'style', 'sanitize', 'util', 'actions
     const hoverCSS = hoverRules.filter((r) => r.decls.size).map((r) => '.' + r.cls + ':hover{' + style.declsToString(r.decls) + '}');
     const tokensCSS = style.tokensCSS(doc);
     const globalCSS = doc.settings && typeof doc.settings.globalCSS === 'string' ? sanitize.stylesheet(doc.settings.globalCSS) : '';
+    // motionMod.nodeCSS() already bundles its own `@media (prefers-reduced-motion:reduce)` override
+    // per node (it needs that preset's `to` declarations to land on, not just `animation:none`).
+    const keyframesCSS = Array.from(motionPresets).map((id) => motionMod.keyframesCSS(id)).join('');
 
-    let css = [tokensCSS, classRules.join(''), hoverCSS.join(''), mediaBlocks.join(''), globalCSS].filter(Boolean).join('\n');
+    let css = [tokensCSS, classRules.join(''), hoverCSS.join(''), mediaBlocks.join(''), keyframesCSS, motionRules.join(''), globalCSS]
+      .filter(Boolean).join('\n');
     if (minify) css = minifyCSS(css);
 
     const bodyHTML = vdom.toHTML(htmlTree, { pretty: !minify });
-    const script = withActions ? '<script>' + actionsMod.runtimeSource() + '<\/script>' : '';
-    const { head, title } = metaHTML(doc, page, { withActions });
+    const runtimes = [withActions ? actionsMod.runtimeSource() : '', withMotion ? motionMod.runtimeSource() : ''].filter(Boolean);
+    const script = runtimes.length ? '<script>' + runtimes.join('\n') + '<\/script>' : '';
+    const { head, title } = metaHTML(doc, page, { withActions: withActions || withMotion });
     const lang = (doc.settings && doc.settings.lang) || 'en';
     const comment = o.sourceComment !== false ? '<' + '!-- Built with Advanced Page Builder (zero-dependency, single file) --' + '>\n' : '';
 
@@ -28215,7 +28374,135 @@ if (typeof document !== 'undefined') APB.require('exporters');
 })();
 </script>
 <script data-src="js/features/motion.js">
-/* stub — owned by C4 */
+/*
+ * motion (UI) — the inspector "Animation" section for `node.motion` (presets/runtime owned by
+ * `core/motion.js`). Applies to any selection (including multiple nodes at once — editing writes
+ * the same motion to every selected node, there is no per-node "Mixed" editor here, only a
+ * single/shared preview of the first node's settings); a live "Preview" button replays the preset
+ * on the selected node(s)' actual canvas elements via the Web Animations API, no export needed to
+ * see it. Not `@node-testable` — DOM-only, mirrors `features/actions.js`'s section structure.
+ */
+(function () {
+  'use strict';
+
+  const TRIGGER_OPTIONS = [{ value: 'enter', label: 'On scroll into view' }, { value: 'load', label: 'On page load' }];
+
+  APB.plugin({
+    id: 'motionUI',
+    order: 43,
+    requires: ['motion', 'widgets', 'icons'],
+
+    init(app) {
+      const motionMod = APB.require('motion');
+      const widgets = APB.require('widgets');
+      const { h } = widgets;
+      const store = app.store;
+      const docops = app.docops;
+
+      if (!app.ui || typeof app.ui.registerInspectorSection !== 'function') return;
+
+      function labeled(label, ctl) {
+        return h('div', { class: 'apb-actions-field' }, h('label', { class: 'apb-actions-field-label' }, label), ctl);
+      }
+
+      function mount(container) {
+        let nodes = [];
+        let renderedSig = null;
+        const bursts = new Map();
+        const el = h('div', { class: 'apb-motion-section' });
+        container.appendChild(el);
+
+        function burstKey(field) {
+          const ids = nodes.map((n) => n.id).join(',');
+          return 'motion:' + field + ':' + ids + '#' + (bursts.get(field) || 0);
+        }
+
+        function write(motion, field, commit) {
+          const ids = nodes.map((n) => n.id);
+          if (!ids.length) return;
+          // Optimistic local update: `nodes` holds a snapshot from the last update() call, and
+          // docops.update() copy-on-writes a *new* node object into the store, so without this
+          // `nodes[i].motion` stays stale until some unrelated store event happens to call
+          // update() again — the very bug features/actions.js's mount() note warns about, just on
+          // the write side instead of the initial-seed side.
+          nodes = nodes.map((n) => Object.assign({}, n, { motion }));
+          renderedSig = JSON.stringify(nodes.map((n) => n.motion || null));
+          docops.update(app, ids, { motion }, { bp: null, label: 'Set animation', coalesce: burstKey(field || 'preset') });
+          if (commit !== false) bursts.set(field || 'preset', (bursts.get(field || 'preset') || 0) + 1);
+        }
+
+        function previewAnimation(clean) {
+          const frames = motionMod.framesFor(clean.preset);
+          if (!frames) return;
+          nodes.forEach((n) => {
+            const target = document.querySelector('.apb-viewport [data-node-id="' + n.id + '"]');
+            if (target && typeof target.animate === 'function') target.animate(frames, { duration: clean.duration, delay: clean.delay, easing: clean.easing, fill: 'both' });
+          });
+        }
+
+        function render() {
+          el.replaceChildren();
+          if (!nodes.length) return;
+          const first = nodes[0];
+          const clean = motionMod.normalize(first.motion);
+          const presetOptions = [{ value: '', label: 'None' }].concat(motionMod.list().map((p) => ({ value: p.id, label: p.label })));
+
+          const presetSel = widgets.select({
+            ariaLabel: 'Animation preset', options: presetOptions, value: clean ? clean.preset : '',
+            onInput: (v) => {
+              if (!v) { write(null, 'preset', true); render(); return; }
+              const next = motionMod.normalize(Object.assign({}, clean, { preset: v })) || motionMod.normalize({ preset: v });
+              write(next, 'preset', true);
+              render();
+            }
+          });
+          el.appendChild(labeled('Animation', presetSel));
+          if (!clean) return;
+
+          const triggerSel = widgets.select({
+            ariaLabel: 'Trigger', options: TRIGGER_OPTIONS, value: clean.trigger,
+            onInput: (v) => write(Object.assign({}, clean, { trigger: v }), 'trigger', true)
+          });
+          const durationField = widgets.numberField({
+            ariaLabel: 'Duration (ms)', value: clean.duration, min: 50, max: 10000, step: 50,
+            onInput: (v, ctx) => write(Object.assign({}, clean, { duration: v }), 'duration', !ctx || ctx.commit !== false)
+          });
+          const delayField = widgets.numberField({
+            ariaLabel: 'Delay (ms)', value: clean.delay, min: 0, max: 10000, step: 50,
+            onInput: (v, ctx) => write(Object.assign({}, clean, { delay: v }), 'delay', !ctx || ctx.commit !== false)
+          });
+          const easingSel = widgets.select({
+            ariaLabel: 'Easing', options: motionMod.EASINGS.map((eName) => ({ value: eName, label: eName })), value: clean.easing,
+            onInput: (v) => write(Object.assign({}, clean, { easing: v }), 'easing', true)
+          });
+          const previewBtn = widgets.button({ label: 'Preview', icon: 'play', size: 'sm', variant: 'subtle', onClick: () => previewAnimation(clean) });
+
+          el.append(labeled('Trigger', triggerSel), labeled('Duration (ms)', durationField), labeled('Delay (ms)', delayField), labeled('Easing', easingSel), previewBtn);
+        }
+
+        function update(nextNodes) {
+          nodes = nextNodes || [];
+          const sig = JSON.stringify(nodes.map((n) => n.motion || null));
+          if (sig === renderedSig) return;
+          renderedSig = sig;
+          render();
+        }
+
+        // buildExternal mounts but does not immediately call update() (see features/actions.js's
+        // note on this) — seed from the current selection right away.
+        update(store.selection.map((id) => store.doc.nodes[id]).filter(Boolean));
+
+        return { el, update, destroy() {} };
+      }
+
+      app.ui.registerInspectorSection({
+        id: 'motion', title: 'Animation', order: 56,
+        applies: (nodes) => nodes.length > 0 && nodes.every((n) => n.type !== 'page'),
+        mount
+      });
+    }
+  });
+})();
 </script>
 <script data-src="js/features/audit.js">
 /* stub — owned by C4 */

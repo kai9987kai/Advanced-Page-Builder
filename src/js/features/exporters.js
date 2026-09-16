@@ -10,9 +10,12 @@
  * the class name is a short id (`n-<id>`), stable across breakpoints so the diff lines up.
  * A `<script>` with `actions.runtimeSource()` is appended only when the document actually uses
  * node actions (`core/actions.js`); that's also the only time nodes get `data-node-id`, since the
- * runtime targets other nodes by it.
+ * runtime targets other nodes by it. Likewise `motion.runtimeSource()` (an IntersectionObserver
+ * that adds `.apb-inview`) is appended only when any node has an animation preset (`core/motion.js`);
+ * unlike actions it needs no `data-node-id` (it matches on `[data-apb-motion]`, not by other nodes'
+ * ids), and both runtimes share one `<script>` tag when a document uses both.
  */
-APB.define('exporters', ['schema', 'vdom', 'style', 'sanitize', 'util', 'actions'], function (schema, vdom, style, sanitize, util, actionsMod) {
+APB.define('exporters', ['schema', 'vdom', 'style', 'sanitize', 'util', 'actions', 'motion'], function (schema, vdom, style, sanitize, util, actionsMod, motionMod) {
   'use strict';
 
   function shortClass(id) {
@@ -116,12 +119,15 @@ APB.define('exporters', ['schema', 'vdom', 'style', 'sanitize', 'util', 'actions
     if (!page || !doc.nodes[page.root]) return null;
     const minify = !!o.minify;
     const withActions = docHasActions(doc);
+    const withMotion = o.motion !== false && motionMod.usesMotion(doc);
     const classFor = (eff) => shortClass(eff.id);
     const baseBp = style.breakpoint(doc, undefined);
     const { assetURL, files } = assetResolver(doc, o);
 
     const baseClasses = new Map();
     const hoverRules = [];
+    const motionRules = [];
+    const motionPresets = new Set();
     const htmlTree = vdom.buildTree(doc, page.root, {
       mode: 'export', bp: baseBp.id, classFor, withIds: withActions, includeHidden: !!o.includeHidden, assetURL,
       onNode: (info) => {
@@ -129,6 +135,10 @@ APB.define('exporters', ['schema', 'vdom', 'style', 'sanitize', 'util', 'actions
         baseClasses.set(cls, info.decls);
         const hover = style.hoverDecls(info.node, doc);
         if (hover.size) hoverRules.push({ cls, decls: hover });
+        if (withMotion && info.node.motion) {
+          const clean = motionMod.normalize(info.node.motion);
+          if (clean) { motionRules.push(motionMod.nodeCSS(cls, info.node.motion)); motionPresets.add(clean.preset); }
+        }
       }
     });
     if (!htmlTree) return null;
@@ -158,13 +168,18 @@ APB.define('exporters', ['schema', 'vdom', 'style', 'sanitize', 'util', 'actions
     const hoverCSS = hoverRules.filter((r) => r.decls.size).map((r) => '.' + r.cls + ':hover{' + style.declsToString(r.decls) + '}');
     const tokensCSS = style.tokensCSS(doc);
     const globalCSS = doc.settings && typeof doc.settings.globalCSS === 'string' ? sanitize.stylesheet(doc.settings.globalCSS) : '';
+    // motionMod.nodeCSS() already bundles its own `@media (prefers-reduced-motion:reduce)` override
+    // per node (it needs that preset's `to` declarations to land on, not just `animation:none`).
+    const keyframesCSS = Array.from(motionPresets).map((id) => motionMod.keyframesCSS(id)).join('');
 
-    let css = [tokensCSS, classRules.join(''), hoverCSS.join(''), mediaBlocks.join(''), globalCSS].filter(Boolean).join('\n');
+    let css = [tokensCSS, classRules.join(''), hoverCSS.join(''), mediaBlocks.join(''), keyframesCSS, motionRules.join(''), globalCSS]
+      .filter(Boolean).join('\n');
     if (minify) css = minifyCSS(css);
 
     const bodyHTML = vdom.toHTML(htmlTree, { pretty: !minify });
-    const script = withActions ? '<script>' + actionsMod.runtimeSource() + '</script>' : '';
-    const { head, title } = metaHTML(doc, page, { withActions });
+    const runtimes = [withActions ? actionsMod.runtimeSource() : '', withMotion ? motionMod.runtimeSource() : ''].filter(Boolean);
+    const script = runtimes.length ? '<script>' + runtimes.join('\n') + '</script>' : '';
+    const { head, title } = metaHTML(doc, page, { withActions: withActions || withMotion });
     const lang = (doc.settings && doc.settings.lang) || 'en';
     const comment = o.sourceComment !== false ? '<' + '!-- Built with Advanced Page Builder (zero-dependency, single file) --' + '>\n' : '';
 

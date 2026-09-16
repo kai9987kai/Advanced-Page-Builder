@@ -112,4 +112,43 @@ export default function (APB, t) {
     const blob = exporters.zip([{ data: 'no path' }, { path: 'ok.txt', data: 'ok' }]);
     assert.ok(blob.size > 0);
   });
+
+  test('html(): a node with motion gets @keyframes + the trigger rule + the IntersectionObserver runtime, but no data-node-id (motion never targets other nodes)', () => {
+    const { store, pageRoot } = setup();
+    const [textId] = docops.insert(store, [{ type: 'text', props: { text: 'Hi' } }], { parent: pageRoot });
+    const before = exporters.html(store.doc, {});
+    assert.ok(!before.html.includes('data-apb-motion'));
+    assert.ok(!before.css.includes('@keyframes'));
+
+    docops.update(store, [textId], { motion: { preset: 'slide-up', duration: 400, delay: 0, easing: 'ease-out', trigger: 'enter' } }, { bp: null });
+    const after = exporters.html(store.doc, {});
+    assert.match(after.html, /data-apb-motion="enter"/);
+    assert.ok(!after.html.includes('data-node-id'), 'motion alone does not need data-node-id');
+    assert.match(after.css, /@keyframes apb-mo-slide-up/);
+    assert.match(after.css, new RegExp('\\.' + exporters.shortClass(textId) + '\\.apb-inview\\{animation:apb-mo-slide-up'));
+    assert.match(after.html, /IntersectionObserver/);
+  });
+
+  test('html(): motion: false suppresses animation CSS/script even when the document has presets set', () => {
+    const { store, pageRoot } = setup();
+    const [textId] = docops.insert(store, [{ type: 'text' }], { parent: pageRoot });
+    docops.update(store, [textId], { motion: { preset: 'fade' } }, { bp: null });
+    const out = exporters.html(store.doc, { motion: false });
+    assert.ok(!out.css.includes('@keyframes'));
+    assert.ok(!out.html.includes('IntersectionObserver'));
+  });
+
+  test('html(): actions and motion share one <script> tag when a document uses both', () => {
+    const { store, pageRoot } = setup();
+    const [btnId] = docops.insert(store, [{ type: 'button' }], { parent: pageRoot });
+    docops.update(store, [btnId], {
+      actions: [{ type: 'submit' }],
+      motion: { preset: 'fade' }
+    }, { bp: null });
+    const out = exporters.html(store.doc, {});
+    const scriptCount = (out.html.match(/<script>/g) || []).length;
+    assert.equal(scriptCount, 1, 'one combined <script>, not two');
+    assert.match(out.html, /apbRunAction/);
+    assert.match(out.html, /IntersectionObserver/);
+  });
 }

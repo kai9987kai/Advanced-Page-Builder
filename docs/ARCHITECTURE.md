@@ -86,6 +86,7 @@ APB.version                       // '2.0.0'
 | `snapping` | core/snapping.js | snap engine (pure) |
 | `docops` | core/docops.js | high-level document operations |
 | `actions` | core/actions.js | click/change node interactions: types, `normalize()`, the exported-page runtime |
+| `motion` | core/motion.js | animation presets for `node.motion`: keyframes, `normalize()`, the exported-page runtime |
 | `viewport` | canvas/viewport.js | camera, zoom/pan, rulers |
 | `renderer` | canvas/renderer.js | document → editor DOM |
 | `overlay` | canvas/overlay.js | selection UI, guides, marquee, measurements |
@@ -971,3 +972,188 @@ planned order. `services.exporters`/`services.preview` (§9) are real now.
   `tests/e2e/scenarios/40-actions-templates-export.mjs` added; `13-canvas-tools.mjs` and
   `21-shell.mjs` updated for the two new tool ids and the inspector-sections list now always
   including `actions` (previously assumed no plugin pre-registers a real section).
+
+### 2026-09-16 — C3/C4 `storage`, `importers`, `assets`, `pages`, `components`
+Closes the persistence/import gap called out in a project review of this build (refreshing the
+tab previously lost all work — there was no writer for `services.storage` or `services.importers`
+at all) and fills in the remaining §8 panels the original plan set aside for later: pages,
+components, an asset library. `docops.js` gained page-tree operations; each of these five plugins
+is a plain top-level `APB.plugin({...})` IIFE (the pattern `features/clipboard.js` already used) —
+**not** the lazy `APB.define` + eager-self-require pattern the previous entry above had to add for
+`exporters`/`templates`/`element-types-extra`. Both work, but the IIFE form needs no such
+workaround since its `APB.plugin(...)` call already runs at script-parse time.
+
+- **`docops.js` page operations** (§6.11 style — one labelled transaction each): `createPage(target,
+  { name, index }) → id` (via `schema.createPage`, already written but unused before this — it just
+  needed a transaction wrapped around it); `duplicatePage(target, pageId) → id` (`schema.reid`s the
+  whole root subtree, fresh slug via `uniqueSlug`); `removePage(target, pageId) → boolean` (refuses
+  the last remaining page; `tx.removeNode(root)` already recurses the whole subtree, no manual walk
+  needed); `reorderPages(target, orderedIds) → boolean` (must be a full permutation of the current
+  page ids or it's rejected); `renamePage(target, pageId, name) → boolean` (also renames the root
+  node to match, so the Layers tree stays in sync); `setPageSlug(target, pageId, slug) → boolean`
+  (slugifies + de-dupes via `schema.uniqueSlug`, excluding the page's own current slug from the
+  clash check); `setPageSeo(target, pageId, patch) → boolean` (shallow-merges into that page's
+  `seo`). `store.setDocField`'s existing auto-repair of `view.pageId` (already there, unrelated to
+  this change) means nothing here needs to touch `view` when the active page is renamed/removed.
+- **`features/storage.js`** (plugin `storage`, order 30) implements `services.storage` (§10):
+  IndexedDB database `apb` (`projects` keyed by id, `versions`, `kv` — the last two stores are
+  created for forward-compatibility with the §10 contract but nothing writes to them yet, only
+  `projects` is live) with a hand-rolled `localStorage` fallback used when IndexedDB throws or is
+  absent — **confirmed to matter in practice**: this app's primary distribution is opening
+  `main.html` via `file://`, and the fallback path is real, not defensive-only, code (its own
+  `tests/e2e/scenarios/41-storage-pages-components.mjs` running under `file://` is what actually
+  exercises whichever backend the browser gives it — in the environment tested, IndexedDB itself
+  worked fine under `file://`, but the fallback is what protects users on browsers/profiles where it
+  doesn't). Autosaves 800 ms after the last `store` `change` event (ignoring `source:'replace'` —
+  opening/creating a project isn't a user edit to autosave) and again on `pagehide`/
+  `visibilitychange`, so closing the tab doesn't lose the last debounced edit. `services.storage`:
+  `list() → Promise<{id,name,updatedAt,thumb}[]>`, `save() → Promise<id>`, `load(id) →
+  Promise<doc|null>`, `open(id) → Promise<boolean>` (`store.replaceDoc`s it in), `new() `
+  (`schema.createDocument()` + replace + immediate save), `saveAsNew()` (points future autosaves at
+  a fresh id, e.g. after importing a foreign project — see `importers.fromFile` below), `remove(id)`,
+  `currentId()`, `isDirty()`. Commands `file.new file.save (Mod+S) file.saveAs (Mod+Shift+S)
+  file.open (Mod+O)` + an "Open a project" dialog (list, switch, delete) + a status-bar autosave
+  indicator (`Saved`/`Saving…`/`Unsaved changes`/`Save failed`). On first boot with an otherwise
+  blank document, offers to import `localStorage['ultimateBuilderPlusLayout' |
+  'ultimateBuilderLayout']` (the predecessor single-file app's own save keys — never deleted by us,
+  per §10) via a toast action that hands its `html` field to `importers.fromHTML`.
+- **`features/importers.js`** (plugin `importers`, order 31) implements `services.importers` (§9),
+  the two entry points other modules already called defensively before this existed —
+  `features/clipboard.js`'s HTML paste (`fromHTML(html, { parent }) → Promise<ids>`, exact signature
+  fixed by that already-written call site, not chosen here) and `canvas/interaction.js`'s `.json`
+  file-drop handler (`fromFile(file) → Promise<result>`). `fromHTML`: sanitizes with
+  `sanitize.html(html, 'html')` (the `'html'` profile specifically, not `'rich'` — only it preserves
+  `style` attributes, needed for the absolute-position case below, and `div`/`button`/`form`), parses
+  with `DOMParser`, then maps common tags to real element types (`img→image`, `button`/`a.button→
+  button`, `ul`/`ol→list`, `table→table`, headings/`p`/`blockquote`/`span`/`a→text`, anything else
+  with only text → `text`, anything else with markup → `html`). An element whose class includes
+  `element-wrapper` (`position:absolute` + inline `left/top/width/height`, parsed via
+  `style.parseDecls` — reused rather than hand-rolled) becomes a `sizing:'fixed'` spec at that
+  x/y/w/h/rotation instead of flowing; everything else gets `sizing:{w:'fill',h:'hug'}` and stacks in
+  document order. That `.element-wrapper` shape is not a made-up convenience — it is **exactly** the
+  predecessor app's own per-element markup (`createWrapper()` in the pasted reference implementation),
+  handles-and-all (`.resize-handle`/`.rotate-handle` children are explicitly skipped when walking into
+  `.element-content`) — so the same code path serves generic rich-paste and the legacy-import offer
+  above with no special-casing. `fromFile`: `{format:'apb', pages:[...]}` shape → opens it as the
+  current document (`store.replaceDoc` + `storage.saveAsNew()` when available, so it doesn't silently
+  autosave over whatever project was already open); `{html: '...'}` shape (the predecessor app's save
+  format) → `fromHTML`; anything else throws (caught by the file-drop handler, which already toasted
+  "not available" before this existed and now toasts the real error instead). Command `file.import`
+  (native file-picker `<input type=file>`) + an Insert-menu... **File**-menu entry.
+- **`features/assets.js`** (plugin `assets`, order 32) implements `services.assets` — a contract
+  `features/clipboard.js`, `canvas/interaction.js` and `features/inspector.js`'s `assetField()` all
+  already called defensively (`add`/`pick`/`url`) before any plugin provided it; this is the first
+  one. Images are stored as `data:` URLs directly on `doc.assets[id]` (§5 model) — no separate blob
+  store, so they autosave with the rest of the document via `storage.js` and travel with
+  `.apb.json` export/import for free, at the cost of the document itself growing with every asset
+  (an acceptable trade for a zero-dependency, single-file app; a real blob store is future work if
+  that ever matters). `add(file) → Promise<id>` (`FileReader` → data URL, `Image()` for natural
+  width/height when it's an image); `pick(opts) → Promise<id|null>` (opens a dialog: existing assets
+  grid + an upload button — this is what lights up the inspector's asset field, which disables its
+  "Choose…" button with an explanatory tooltip when no `pick` is registered); `url(id) → string`;
+  `list()`; `remove(id)`. Left panel "Assets" (grid, drag-and-drop upload, delete).
+  **Side effect worth knowing about**: dropping an image onto the canvas now produces
+  `props.asset` (an id) instead of an inline `props.src` data URL, because
+  `canvas/interaction.js`'s `assetProps()` prefers the service when one is registered — this changed
+  `tests/e2e/scenarios/13-canvas-tools.mjs`'s dropped-image assertions (checks `props.asset` +
+  `services.assets.url()` now) and uncovered a real latent bug in the same function: it measured the
+  new image's natural size from `props.src`, which is now empty in the asset-service path, so it
+  always fell back to the default 320×240 — fixed to resolve the src through `services.assets.url()`
+  first when there's an asset id.
+- **`features/pages.js`** (plugin `pages`, order 33) is UI over the `docops.js` page operations —
+  add/duplicate/reorder/rename/delete + a per-page SEO editor (slug, title, description, canonical,
+  og:image, noindex — everything `exporters.metaHTML`/`site()` already reads from `page.seo`/`slug`).
+  No panel of its own: the page *switcher* has lived in the Layers panel head since C1a; this adds
+  "+" (`pages.add`) and "manage" (`pages.manage`) icon buttons there (`layers.js` checks
+  `app.commands.get(...)` before showing them, so load order between the two plugins doesn't
+  matter) and changes that head to show even with a single page — previously it hid itself below two
+  pages, which meant a one-page document had no way to discover "add a page" at all.
+- **`features/components.js`** (plugin `components`, order 34) registers `component.create` /
+  `component.detach` — both had a standing slot in `shell.js`'s `CONTEXT_GROUPS` since B2 (the
+  right-click menu already knew where "Create component" belonged) but no command behind it until
+  now, so the entry silently never appeared. `docops.js` already had the underlying node-tree ops
+  (`createComponent instantiate detach`, since A2); this only adds the commands + a left
+  "Components" panel (list, click to `instantiate`, delete). Deleting a component *definition*
+  (`doc.components[id]` + its master subtree) is handled directly with `store.transact` here rather
+  than added to `docops.js` — same reasoning as `assets.js`: it's a doc-level resource map edit, not
+  a node-tree operation on the current page.
+- Testing: `tests/unit/docops.test.mjs` gained page-operations coverage.
+  `tests/e2e/scenarios/41-storage-pages-components.mjs` added (also exercises IndexedDB/localStorage
+  for real, under `file://`); `13-canvas-tools.mjs` and `21-shell.mjs` updated for the
+  props.asset-not-props.src change and the two new registered commands changing what the "File" menu
+  and a fixed-coordinate context-menu open-position check see.
+
+### 2026-09-16 — C4 `motion` — animation presets
+Fills in `node.motion` (`{ preset, duration, delay, easing, trigger: 'enter'|'load' }`, in the model
+since §5.1 but never written or read by anything) and the §11 export contract's "motion via CSS
+`@keyframes` + scroll-driven `animation-timeline: view()` with an IntersectionObserver fallback
+script only when motion is used" / reduced-motion clause, both previously accepted as no-op options
+on `exporters.html()`.
+
+- **`core/motion.js`** (pure, deps `util`): `PRESETS` — `fade slide-up slide-down slide-left
+  slide-right zoom-in zoom-out bounce flip`, each a `{ from, to }` (and `bounce` a `mid` step list)
+  of plain `opacity`/`transform` declarations, trusted (authored here, never user input, so no
+  sanitizing needed to emit them as CSS). `has(id) list()` · `normalize(motion) → { preset, duration
+  (50–10000ms), delay (0–10000ms), easing (`ease ease-in ease-out ease-in-out linear`), trigger
+  (`enter`|`load`) } | null` — unlike `actions.normalize` this takes no `doc` (motion never
+  references another node) and clamps/defaults instead of dropping the whole entry, since a
+  slightly-out-of-range duration is still meaningful, an unknown-typed action mostly isn't.
+  `keyframesName(id)` (`apb-mo-<id>`) · `keyframesCSS(id)` → the `@keyframes` block text ·
+  `nodeCSS(className, motion)` → everything one node's animation needs: a `base` rule holding the
+  `from` declarations (so there's no flash-of-unanimated-content before the trigger fires), the
+  active rule (`.cls{animation:…}` unconditionally for `trigger:'load'`, `.cls.apb-inview{…}` for
+  `trigger:'enter'` — `.apb-inview` is added by the runtime below), a `@supports
+  (animation-timeline:view())` progressive-enhancement block for `enter` (browsers that support
+  scroll-linked animation skip the observer/class entirely), and a `@media
+  (prefers-reduced-motion:reduce)` override that lands on the preset's `to` declarations with
+  `!important` rather than just setting `animation:none` — cancelling the animation alone would
+  leave the element stuck in its `from`/hidden state forever, since `base` applies unconditionally.
+  `framesFor(id)` → Web Animations API keyframe objects (used only by the editor preview below —
+  `opacity`/`transform` happen to need no camelCase conversion, they're valid property names as-is).
+  `usesMotion(doc)` (whole-document scan, same simplification as `exporters.docHasActions` — trades
+  a little export-size precision for materially simpler code) · `runtimeSource()` → the trusted
+  `<script>` body (never through vdom — its tag whitelist bans `<script>`, same reasoning as
+  `core/actions.js`): one shared `IntersectionObserver` (falls back to marking everything in-view
+  immediately when `IntersectionObserver` doesn't exist) that adds `.apb-inview` to every
+  `[data-apb-motion="enter"]` element and unobserves it; `[data-apb-motion="load"]` elements need no
+  script, `nodeCSS`'s unconditional rule already animates them.
+- **`vdom` decorate()** (now also depends on `motion`) sets `data-apb-motion="<trigger>"` on a node's
+  root element whenever `eff.motion` normalizes successfully, in every mode (inert in the editor,
+  same pattern as `data-apb-actions`) — but unlike actions, motion never needs `data-node-id`
+  (nothing targets a *different* node), so it doesn't affect `exporters.html()`'s `withIds` gate.
+- **`features/exporters.js`** (now also depends on `motion`): the same per-class `decls`-collection
+  pass used for style/hover CSS also collects `motion.nodeCSS(cls, node.motion)` and the set of
+  presets actually used, so the base-breakpoint traversal already in place is enough — no second
+  motion-specific pass. `@keyframes` blocks for used presets are deduped and emitted once. `withActions`
+  gates `data-node-id`/the actions runtime as before; a **new**, separate `withMotion` flag
+  (`o.motion !== false && motion.usesMotion(doc)` — the `motion` export option, previously a
+  documented no-op, is now real) gates the keyframes/motion CSS and its runtime. When a document uses
+  both actions and motion, their two runtime sources are concatenated into **one** `<script>` tag,
+  not two. The CSP `script-src 'unsafe-inline'` clause (added for actions) now triggers on either
+  flag, still omitted when a page uses neither.
+- **`features/motion.js`** (plugin `motionUI`, order 43; not `@node-testable`, DOM-only) — the
+  inspector "Animation" section via `ui.registerInspectorSection`, applying to any selection except
+  `page` roots (unlike `features/actions.js` this supports multi-selection: editing writes the same
+  motion to every selected node — there's no per-node target reference to make "Mixed" meaningful
+  the way it is for, say, fill colour). Preset select (`None` + `motion.list()`); once a preset is
+  picked, Trigger/Duration/Delay/Easing fields appear plus a "Preview" button that replays the
+  preset on the selected node(s)' *actual rendered canvas elements* via
+  `element.animate(motion.framesFor(preset), {...})` (Web Animations API) — instant feedback with no
+  export step and no stylesheet injection into the editor. Writes go through the same
+  `docops.update(app, ids, {motion}, {bp:null, coalesce:'motion:<field>:<ids>#<burst>'})` /
+  burst-per-field pattern as `features/actions.js`. **Same mount-lifecycle gotcha as actions, plus
+  one more the write side needed too**: `buildExternal` doesn't call `update()` right after
+  `mount()` (documented in the actions entry above — every external inspector section must self-seed
+  from `store.selection` or it renders empty), and separately, `docops.update()` copy-on-writes a
+  *new* node object into the store while this section's local `nodes` array still holds the old
+  snapshot from the last `update()` call — so `write()` must also optimistically patch its own local
+  `nodes` before re-rendering, or the just-picked preset's extra fields (trigger/duration/delay/
+  easing) never appear until some unrelated store event forces a real `update()`. `actions.js`
+  already did this (`node = Object.assign({}, node, {actions: next})` before every `write`/`render`);
+  this entry exists so the pattern doesn't have to be independently rediscovered a third time.
+- Testing: `tests/unit/motion.test.mjs` added (presets, `normalize`, `keyframesCSS`, `nodeCSS`
+  including the reduced-motion/`to`-landing behaviour, `framesFor`, `usesMotion`, `runtimeSource`).
+  `tests/unit/exporters.test.mjs` gained motion-integration cases (CSS/runtime present only when
+  used, `motion:false` suppresses it, one shared `<script>` when a document uses both actions and
+  motion). `tests/e2e/scenarios/42-motion.mjs` added; `21-shell.mjs`'s inspector-sections-list
+  assertion updated for `motion` joining `actions` as a second always-registered real section.
