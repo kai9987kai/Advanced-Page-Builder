@@ -718,4 +718,18 @@ export default function (APB, t) {
     assert.equal(seo.description, '', 'untouched fields keep their previous value');
     assert.equal(docops.setPageSeo(store, 'nope', { title: 'x' }), false);
   });
+
+  test('pages: setPageSlug slugifies and de-dupes against the other pages, leaves the page itself out of the clash check', () => {
+    const { store } = setup();
+    const p1 = store.doc.pages[0].id;
+    const p2 = docops.createPage(store, { name: 'About' });
+    assert.equal(docops.setPageSlug(store, p1, 'Contact Us!'), true);
+    assert.equal(store.doc.pages.find((p) => p.id === p1).slug, 'contact-us');
+    // Renaming p2's slug to the same value p1 already has must not collide with p1 itself, only dedupe against others.
+    assert.equal(docops.setPageSlug(store, p2, 'contact-us'), true);
+    assert.equal(store.doc.pages.find((p) => p.id === p2).slug, 'contact-us-2');
+    assert.equal(docops.setPageSlug(store, p1, 'Contact Us!'), true, 're-setting a page\'s own slug to itself is not a clash');
+    assert.equal(store.doc.pages.find((p) => p.id === p1).slug, 'contact-us');
+    assert.equal(docops.setPageSlug(store, 'nope', 'x'), false);
+  });
 }

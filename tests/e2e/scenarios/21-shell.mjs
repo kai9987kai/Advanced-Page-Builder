@@ -15,7 +15,9 @@ export async function run(page, { assert }) {
   await page.ready();
   await page.eval(() => APB.require('dialogs').toasts.forEach((t) => t.close()));
   // this scenario asserts the bare shell, so the feature panels registered at boot step aside
-  await page.eval(() => { APB.app.ui.unregisterPanel('layers'); APB.app.ui.unregisterPanel('design'); });
+  await page.eval(() => {
+    ['layers', 'design', 'assets', 'components'].forEach((id) => APB.app.ui.unregisterPanel(id));
+  });
 
   /* ------------------------------------------------------------ structure */
   const base = await page.eval(() => {
@@ -316,7 +318,10 @@ export async function run(page, { assert }) {
   assert.ok(top.open, 'main menu opens');
   assert.equal(top.expanded, 'true');
   assert.ok(top.labels.includes('Edit') && top.labels.includes('View'), 'main menu lists Edit and View: ' + top.labels.join(','));
-  assert.ok(!top.labels.includes('File'), 'empty menus are omitted');
+  // Every one of shell.js's six fixed menus now has real content from some feature plugin (File:
+  // storage/importers/pages, Insert: templates, ...) — and nothing else — so the exact set doubles
+  // as the "empty menus are omitted" check: a stray empty custom menu would make this list longer.
+  assert.deepEqual(top.labels.slice().sort(), ['Arrange', 'Edit', 'File', 'Help', 'Insert', 'View'], 'exactly the six populated menus show, nothing empty');
   assert.ok(top.focusInMenu, 'focus moves into the menu');
   await page.key('e');
   assert.equal(await page.eval(() => document.activeElement.textContent), 'Edit', 'typeahead focuses Edit');
@@ -373,8 +378,14 @@ export async function run(page, { assert }) {
   assert.equal(z.status, '200%');
 
   /* ------------------------------------------------------------ context menu */
-  await page.eval((id) => { APB.app.store.select([]); APB.app.emit('canvas:contextmenu', { clientX: 640, clientY: 400, nodeId: id }); }, nodeId);
-  const ctx = await page.eval(() => {
+  // Off-center with generous clearance on every side: with component.create now registered
+  // (features/components.js) the menu has one more row than when this test was first written, and
+  // a click too close to an edge makes positionFloating() flip/clamp it away from the pointer —
+  // correct menu behaviour, just not what a tight pixel-exact "near" check at viewport-center can
+  // assume as the menu keeps growing with the app's command set.
+  const menuAt = { x: 260, y: 160 };
+  await page.eval((a) => { APB.app.store.select([]); APB.app.emit('canvas:contextmenu', { clientX: a.pt.x, clientY: a.pt.y, nodeId: a.id }); }, { pt: menuAt, id: nodeId });
+  const ctx = await page.eval((pt) => {
     const m = document.querySelector('.apb-menu[role="menu"]');
     const allowed = ['edit.cut', 'edit.copy', 'edit.paste', 'edit.duplicate', 'edit.delete', 'arrange.group', 'arrange.ungroup', 'arrange.wrapStack',
       'arrange.bringForward', 'arrange.sendBackward', 'arrange.bringToFront', 'arrange.sendToBack', 'arrange.lock', 'arrange.hide', 'component.create', 'view.zoomSelection'];
@@ -382,10 +393,13 @@ export async function run(page, { assert }) {
     const r = m && m.getBoundingClientRect();
     return {
       open: !!m, commands: items.map((i) => i.dataset.command), expected: allowed.filter((id) => APB.app.commands.get(id)),
-      selection: APB.app.store.selection.slice(), near: !!r && Math.abs(r.left - 640) < 4 && Math.abs(r.top - 400) < 4,
+      // dialogs.js's menuLevel() adds a small `offset` (2px for a plain-point anchor) before
+      // clamping to the viewport, so "at the pointer" is only ever approximate — 6px comfortably
+      // covers that plus sub-pixel layout rounding while still failing on an actual flip/clamp.
+      selection: APB.app.store.selection.slice(), near: !!r && Math.abs(r.left - pt.x) < 6 && Math.abs(r.top - pt.y) < 6,
       label: m && m.getAttribute('aria-label')
     };
-  });
+  }, menuAt);
   assert.ok(ctx.open, 'context menu appears');
   assert.deepEqual(ctx.commands, ctx.expected, 'context menu lists exactly the existing commands');
   assert.ok(ctx.commands.includes('view.zoomSelection'));

@@ -400,19 +400,31 @@
           const sig = pages.map((p) => p.id + ':' + p.name).join('') + '|' + store.view.pageId + '|' + (store.view.component || '');
           if (sig === headSig) return;
           headSig = sig;
-          if (pages.length < 2 || store.view.component) {
+          if (store.view.component) {
             head.hidden = true;
             head.replaceChildren();
             return;
           }
           head.hidden = false;
-          const sel = widgets.select({
-            ariaLabel: 'Page', className: 'apb-layers-page',
-            options: pages.map((p) => ({ value: p.id, label: p.name || 'Page' })),
-            value: store.view.pageId,
-            onInput: (value) => { if (value && value !== store.view.pageId) store.setView({ pageId: value, context: null }); }
-          });
-          head.replaceChildren(icons.get('pages', { size: 14, className: 'apb-layers-page-icon' }), sel);
+          const children = [icons.get('pages', { size: 14, className: 'apb-layers-page-icon' })];
+          if (pages.length > 1) {
+            children.push(widgets.select({
+              ariaLabel: 'Page', className: 'apb-layers-page',
+              options: pages.map((p) => ({ value: p.id, label: p.name || 'Page' })),
+              value: store.view.pageId,
+              onInput: (value) => { if (value && value !== store.view.pageId) store.setView({ pageId: value, context: null }); }
+            }));
+          } else if (pages.length === 1) {
+            children.push(h('span', { class: 'apb-layers-page-name' }, pages[0].name || 'Page'));
+          }
+          children.push(widgets.iconButton({
+            icon: 'plus', label: 'Add page', size: 'sm',
+            onClick: () => { if (app.commands.get('pages.add')) app.commands.run('pages.add'); }
+          }));
+          if (app.commands.get('pages.manage')) {
+            children.push(widgets.iconButton({ icon: 'folder', label: 'Manage pages', size: 'sm', onClick: () => app.commands.run('pages.manage') }));
+          }
+          head.replaceChildren(...children);
         }
 
         /* -------------------------------------------------------------- selection */

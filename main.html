@@ -6,7 +6,7 @@
 <meta name="color-scheme" content="light dark">
 <meta name="description" content="Advanced Page Builder — a zero-dependency visual web page builder that runs entirely in your browser.">
 <meta name="generator" content="Advanced Page Builder 2.0.0">
-<!-- Advanced Page Builder v2.0.0 · built 2026-09-16T18:46:34.471Z · single-file build of src/index.html -->
+<!-- Advanced Page Builder v2.0.0 · built 2026-09-16T19:16:22.499Z · single-file build of src/index.html -->
 <title>Advanced Page Builder</title>
 
 <style data-src="css/tokens.css">
@@ -3217,6 +3217,15 @@ html.apb-scrubbing * {
   min-width: 0;
 }
 
+.apb-layers-page-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--apb-font-size-sm);
+}
+
 .apb-layers-search {
   padding: var(--apb-space-2);
   flex: 0 0 auto;
@@ -3973,9 +3982,10 @@ html.apb-scrubbing * {
 </style>
 <style data-src="css/tools.css">
 /*
- * tools — dialogs for the export/preview/templates tools (ARCHITECTURE.md §11; `features/exporters.js`,
- * `features/templates.js`). Shared panel primitives live in panels.css; this file only styles the
- * dialog bodies those two plugins build.
+ * tools — dialogs for the export/preview/templates/storage/pages/assets/components tools
+ * (ARCHITECTURE.md §10-11; `features/{exporters,templates,storage,pages,assets,components}.js`).
+ * Shared panel primitives live in panels.css; this file only styles the dialog bodies those
+ * plugins build.
  */
 
 /* ------------------------------------------------------------- export dialog */
@@ -4112,6 +4122,199 @@ html.apb-scrubbing * {
 .apb-actions-field-label {
   font-size: var(--apb-font-size-xs);
   color: var(--apb-text-muted);
+}
+
+/* -------------------------------------------------------------- projects list */
+
+.apb-projects-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--apb-space-2);
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.apb-project-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--apb-space-3);
+  padding: var(--apb-space-3);
+  border: 1px solid var(--apb-border);
+  border-radius: var(--apb-radius-2);
+  background: var(--apb-surface);
+  cursor: pointer;
+}
+
+.apb-project-row:hover,
+.apb-project-row:focus-visible {
+  border-color: var(--apb-accent);
+  background: var(--apb-accent-soft);
+}
+
+.apb-project-row.is-current {
+  border-color: var(--apb-accent);
+}
+
+.apb-project-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.apb-project-row-name {
+  font-size: var(--apb-font-size-md);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.apb-project-row-date {
+  font-size: var(--apb-font-size-xs);
+  color: var(--apb-text-muted);
+}
+
+.apb-autosave-status {
+  font-size: var(--apb-font-size-xs);
+  color: var(--apb-text-muted);
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------- pages */
+
+.apb-pages-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--apb-space-2);
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.apb-page-row {
+  display: flex;
+  align-items: center;
+  gap: var(--apb-space-2);
+  padding: var(--apb-space-2) var(--apb-space-3);
+  border: 1px solid var(--apb-border);
+  border-radius: var(--apb-radius-2);
+  background: var(--apb-surface);
+}
+
+.apb-page-row.is-active {
+  border-color: var(--apb-accent);
+  background: var(--apb-accent-soft);
+}
+
+.apb-page-row-name {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.apb-page-seo-form {
+  display: grid;
+  gap: var(--apb-space-3);
+}
+
+/* ------------------------------------------------------------------ assets */
+
+.apb-assets-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: var(--apb-space-2);
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.apb-asset-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--apb-space-2);
+  border: 1px solid var(--apb-border);
+  border-radius: var(--apb-radius-2);
+  background: var(--apb-surface);
+  cursor: pointer;
+  text-align: left;
+}
+
+.apb-asset-card:hover,
+.apb-asset-card:focus-visible {
+  border-color: var(--apb-accent);
+}
+
+.apb-asset-card-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 64px;
+  border-radius: var(--apb-radius-1);
+  background: var(--apb-surface-2);
+  overflow: hidden;
+}
+
+.apb-asset-card-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.apb-asset-card-name {
+  font-size: var(--apb-font-size-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.apb-asset-drop {
+  border: 1px dashed var(--apb-border-strong);
+  border-radius: var(--apb-radius-2);
+  padding: var(--apb-space-4);
+  text-align: center;
+  color: var(--apb-text-muted);
+  font-size: var(--apb-font-size-sm);
+}
+
+.apb-asset-drop.is-dragover {
+  border-color: var(--apb-accent);
+  background: var(--apb-accent-soft);
+}
+
+/* -------------------------------------------------------------- components */
+
+.apb-components-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--apb-space-2);
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.apb-component-row {
+  display: flex;
+  align-items: center;
+  gap: var(--apb-space-2);
+  padding: var(--apb-space-2) var(--apb-space-3);
+  border: 1px solid var(--apb-border);
+  border-radius: var(--apb-radius-2);
+  background: var(--apb-surface);
+  cursor: pointer;
+  text-align: left;
+}
+
+.apb-component-row:hover,
+.apb-component-row:focus-visible {
+  border-color: var(--apb-accent);
+  background: var(--apb-accent-soft);
+}
+
+.apb-component-row-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>
 </head>
@@ -11479,6 +11682,116 @@ APB.define('docops', ['util', 'geometry', 'schema'], function (util, geometry, s
     });
   }
 
+  /* ------------------------------------------------------------------ pages */
+
+  /** createPage(target, { name, index }) → new page id, appended (or inserted at index). */
+  function createPage(target, opts) {
+    const o = opts || {};
+    const { store } = resolve(target);
+    return store.transact('Add page', (tx) => {
+      const { page, root } = schema.createPage(tx.doc, o.name);
+      tx.createNode(root, null);
+      const pages = (tx.doc.pages || []).slice();
+      const at = isNum(o.index) ? util.clamp(Math.round(o.index), 0, pages.length) : pages.length;
+      pages.splice(at, 0, page);
+      tx.setDocField('pages', pages);
+      return page.id;
+    });
+  }
+
+  /** duplicatePage(target, pageId) → new page id (fresh ids for the whole subtree), inserted right after the source. */
+  function duplicatePage(target, pageId) {
+    const { store } = resolve(target);
+    const doc = store.doc;
+    const page = (doc.pages || []).find((p) => p.id === pageId);
+    if (!page || !doc.nodes[page.root]) return null;
+    return store.transact('Duplicate page', (tx) => {
+      const { nodes, idMap } = schema.reid(tx.doc.nodes, [page.root]);
+      for (const nid of Object.keys(nodes)) tx.set(['nodes', nid], nodes[nid]);
+      const pages = tx.doc.pages.slice();
+      const taken = new Set(pages.map((p) => p.name));
+      const name = util.nextName(page.name, taken);
+      const next = {
+        id: util.uid('pg', pages.map((p) => p.id)), name, slug: schema.uniqueSlug(tx.doc, name),
+        root: idMap[page.root], seo: util.deepClone(page.seo)
+      };
+      const at = pages.findIndex((p) => p.id === pageId) + 1;
+      pages.splice(at, 0, next);
+      tx.setDocField('pages', pages);
+      return next.id;
+    });
+  }
+
+  /** removePage(target, pageId) → boolean (refuses to remove the last remaining page). */
+  function removePage(target, pageId) {
+    const { store } = resolve(target);
+    const doc = store.doc;
+    const pages = doc.pages || [];
+    if (pages.length <= 1) return false;
+    const page = pages.find((p) => p.id === pageId);
+    if (!page) return false;
+    return store.transact('Delete page', (tx) => {
+      if (doc.nodes[page.root]) tx.removeNode(page.root);
+      tx.setDocField('pages', tx.doc.pages.filter((p) => p.id !== pageId));
+      return true;
+    });
+  }
+
+  /** reorderPages(target, orderedIds) → boolean; orderedIds must be a permutation of the current page ids. */
+  function reorderPages(target, orderedIds) {
+    const { store } = resolve(target);
+    const doc = store.doc;
+    const byId = new Map((doc.pages || []).map((p) => [p.id, p]));
+    const next = (Array.isArray(orderedIds) ? orderedIds : []).map((id) => byId.get(id)).filter(Boolean);
+    if (next.length !== (doc.pages || []).length) return false;
+    return store.transact('Reorder pages', (tx) => { tx.setDocField('pages', next); return true; });
+  }
+
+  /** renamePage(target, pageId, name) → boolean; also renames the page's root node to match. */
+  function renamePage(target, pageId, name) {
+    const { store } = resolve(target);
+    const doc = store.doc;
+    const idx = (doc.pages || []).findIndex((p) => p.id === pageId);
+    if (idx === -1) return false;
+    const clean = String(name || '').trim().slice(0, 120) || doc.pages[idx].name;
+    return store.transact('Rename page', (tx) => {
+      const pages = tx.doc.pages.slice();
+      pages[idx] = Object.assign({}, pages[idx], { name: clean });
+      tx.setDocField('pages', pages);
+      if (tx.doc.nodes[pages[idx].root]) tx.updateNode(pages[idx].root, { name: clean }, { bp: null });
+      return true;
+    });
+  }
+
+  /** setPageSlug(target, pageId, slug) → boolean; slugifies and de-dupes against the other pages. */
+  function setPageSlug(target, pageId, slug) {
+    const { store } = resolve(target);
+    const doc = store.doc;
+    const idx = (doc.pages || []).findIndex((p) => p.id === pageId);
+    if (idx === -1) return false;
+    return store.transact('Change page URL', (tx) => {
+      const pages = tx.doc.pages.slice();
+      const clean = schema.uniqueSlug(Object.assign({}, tx.doc, { pages }), slug, pageId);
+      pages[idx] = Object.assign({}, pages[idx], { slug: clean });
+      tx.setDocField('pages', pages);
+      return true;
+    });
+  }
+
+  /** setPageSeo(target, pageId, patch) → boolean; shallow-merges into that page's `seo`. */
+  function setPageSeo(target, pageId, patch) {
+    const { store } = resolve(target);
+    const doc = store.doc;
+    const idx = (doc.pages || []).findIndex((p) => p.id === pageId);
+    if (idx === -1 || !util.isPlainObject(patch)) return false;
+    return store.transact('Edit page SEO', (tx) => {
+      const pages = tx.doc.pages.slice();
+      pages[idx] = Object.assign({}, pages[idx], { seo: Object.assign({}, pages[idx].seo, patch) });
+      tx.setDocField('pages', pages);
+      return true;
+    });
+  }
+
   /* ------------------------------------------------------------- components */
 
   function createComponent(target, ids, opts) {
@@ -11674,6 +11987,7 @@ APB.define('docops', ['util', 'geometry', 'schema'], function (util, geometry, s
     insert, remove, duplicate, move, setBox, update, reparent,
     group, ungroup, wrap, align, distribute, tidy, radial, matchSize, zorder,
     setLocked, setHidden, fitGroup, makeResponsive,
+    createPage, duplicatePage, removePage, reorderPages, renamePage, setPageSlug, setPageSeo,
     createComponent, instantiate, detach,
     worldBox, worldBounds, toLocal, topLevel, sortDocOrder, isLocked
   };
@@ -15605,7 +15919,9 @@ APB.define('interaction', ['util', 'geometry', 'snapping', 'schema', 'elements',
         const file = list[i];
         const props = await assetProps(file);
         if (!props.src && !props.asset) continue;
-        const size = fitSize(await measureImage(props.src));
+        const assetsSvc = app.services && app.services.assets;
+        const measureSrc = props.src || (props.asset && assetsSvc && typeof assetsSvc.url === 'function' ? assetsSvc.url(props.asset) : '');
+        const size = fitSize(await measureImage(measureSrc));
         if (destroyed) return [];
         if (job.replace && own(store.doc.nodes, job.replace)) {
           const patch = { 'props.src': props.src, 'props.asset': props.asset, name: file.name || 'Image' };
@@ -22867,19 +23183,31 @@ APB.define('shell', ['env', 'util', 'schema', 'commands', 'widgets', 'icons', 'd
           const sig = pages.map((p) => p.id + ':' + p.name).join('') + '|' + store.view.pageId + '|' + (store.view.component || '');
           if (sig === headSig) return;
           headSig = sig;
-          if (pages.length < 2 || store.view.component) {
+          if (store.view.component) {
             head.hidden = true;
             head.replaceChildren();
             return;
           }
           head.hidden = false;
-          const sel = widgets.select({
-            ariaLabel: 'Page', className: 'apb-layers-page',
-            options: pages.map((p) => ({ value: p.id, label: p.name || 'Page' })),
-            value: store.view.pageId,
-            onInput: (value) => { if (value && value !== store.view.pageId) store.setView({ pageId: value, context: null }); }
-          });
-          head.replaceChildren(icons.get('pages', { size: 14, className: 'apb-layers-page-icon' }), sel);
+          const children = [icons.get('pages', { size: 14, className: 'apb-layers-page-icon' })];
+          if (pages.length > 1) {
+            children.push(widgets.select({
+              ariaLabel: 'Page', className: 'apb-layers-page',
+              options: pages.map((p) => ({ value: p.id, label: p.name || 'Page' })),
+              value: store.view.pageId,
+              onInput: (value) => { if (value && value !== store.view.pageId) store.setView({ pageId: value, context: null }); }
+            }));
+          } else if (pages.length === 1) {
+            children.push(h('span', { class: 'apb-layers-page-name' }, pages[0].name || 'Page'));
+          }
+          children.push(widgets.iconButton({
+            icon: 'plus', label: 'Add page', size: 'sm',
+            onClick: () => { if (app.commands.get('pages.add')) app.commands.run('pages.add'); }
+          }));
+          if (app.commands.get('pages.manage')) {
+            children.push(widgets.iconButton({ icon: 'folder', label: 'Manage pages', size: 'sm', onClick: () => app.commands.run('pages.manage') }));
+          }
+          head.replaceChildren(...children);
         }
 
         /* -------------------------------------------------------------- selection */
@@ -26402,17 +26730,818 @@ if (typeof document !== 'undefined') APB.require('templates');
 /* stub — owned by C2 */
 </script>
 <script data-src="js/features/assets.js">
-/* stub — owned by C2 */
+/*
+ * assets — `services.assets` (ARCHITECTURE.md §9) and the left "Assets" panel. Images are stored
+ * as `data:` URLs directly on `doc.assets[id]` (ARCHITECTURE.md §5 model comment) — no separate
+ * blob store, so they autosave with the rest of the document via `features/storage.js` and travel
+ * with `.apb.json` exports/imports for free.
+ *
+ * Contract (already depended on by `features/clipboard.js` and `canvas/interaction.js`, which both
+ * work without it — see their `assetProps()`/paste-image fallbacks — this just makes the better
+ * path available): `add(file) → Promise<id>`, `pick(opts) → Promise<id|null>` (used by the
+ * inspector's `type:'asset'` field, see `features/inspector.js`'s `assetField()`), `url(id) →
+ * string`, `list() → record[]`, `remove(id) → boolean`.
+ */
+(function () {
+  'use strict';
+
+  function readDataURL(file) {
+    return new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(typeof fr.result === 'string' ? fr.result : '');
+      fr.onerror = () => reject(fr.error || new Error('Could not read file'));
+      fr.readAsDataURL(file);
+    });
+  }
+
+  function measureImage(src) {
+    return new Promise((resolve) => {
+      if (!src || typeof Image !== 'function') { resolve(null); return; }
+      const img = new Image();
+      img.onload = () => resolve({ w: img.naturalWidth || 0, h: img.naturalHeight || 0 });
+      img.onerror = () => resolve(null);
+      img.src = src;
+    });
+  }
+
+  function kindOf(file) {
+    const type = (file && file.type) || '';
+    if (/^image\//.test(type)) return 'image';
+    if (/^video\//.test(type)) return 'video';
+    return 'file';
+  }
+
+  APB.plugin({
+    id: 'assets',
+    order: 32,
+    requires: ['widgets', 'icons', 'util'],
+
+    init(app) {
+      const widgets = APB.require('widgets');
+      const icons = APB.require('icons');
+      const util = APB.require('util');
+      const { h } = widgets;
+      const store = app.store;
+
+      function list() {
+        const assets = store.doc.assets || {};
+        return Object.keys(assets).map((id) => assets[id]).reverse();
+      }
+      function url(id) {
+        const a = (store.doc.assets || {})[id];
+        return a && typeof a.src === 'string' ? a.src : '';
+      }
+      function remove(id) {
+        if (!store.doc.assets || !store.doc.assets[id]) return false;
+        store.transact('Remove asset', (tx) => {
+          const assets = Object.assign({}, tx.doc.assets);
+          delete assets[id];
+          tx.setDocField('assets', assets);
+        });
+        return true;
+      }
+      async function add(file) {
+        const src = await readDataURL(file);
+        const kind = kindOf(file);
+        const dims = kind === 'image' ? await measureImage(src) : null;
+        return store.transact('Add asset', (tx) => {
+          const id = util.uid('as', tx.doc.assets || {});
+          const rec = {
+            id, name: (file && file.name) || 'Untitled', kind, mime: (file && file.type) || '', src,
+            w: dims ? dims.w : undefined, h: dims ? dims.h : undefined, bytes: (file && file.size) || 0
+          };
+          tx.setDocField(['assets', id], rec);
+          return id;
+        });
+      }
+
+      function cardEl(rec, onPick) {
+        const thumb = h('div', { class: 'apb-asset-card-thumb' },
+          rec.kind === 'image' && rec.src ? (() => { const img = h('img', { alt: '' }); img.src = rec.src; return img; })() : icons.get(rec.kind === 'video' ? 'video' : 'file', { size: 20 }));
+        const card = h('button', { type: 'button', class: 'apb-asset-card', title: rec.name },
+          thumb, h('div', { class: 'apb-asset-card-name' }, rec.name));
+        card.addEventListener('click', () => onPick(rec.id));
+        return card;
+      }
+
+      function fileInputEl(accept, onFiles) {
+        const input = h('input', { type: 'file', accept: accept || 'image/*', multiple: true, style: 'display:none' });
+        input.addEventListener('change', () => { if (input.files && input.files.length) onFiles(Array.from(input.files)); input.value = ''; });
+        return input;
+      }
+
+      /* -------------------------------------------------------------- panel */
+
+      function mount(container) {
+        const grid = h('div', { class: 'apb-assets-grid' });
+        const drop = h('div', { class: 'apb-asset-drop' }, 'Drop images here, or ');
+        const uploadBtn = widgets.button({ label: 'Upload…', icon: 'plus', size: 'sm', variant: 'subtle' });
+        const input = fileInputEl('image/*,video/*', (files) => { Promise.all(files.map((f) => add(f))).then(render); });
+        uploadBtn.addEventListener('click', () => input.click());
+        drop.append(uploadBtn, input);
+        const el = h('div', { class: 'apb-panel-fill' },
+          h('div', { class: 'apb-panel-bar' }, h('strong', {}, 'Assets')),
+          h('div', { class: 'apb-panel-scroll' }, drop, grid));
+        container.appendChild(el);
+
+        ['dragenter', 'dragover'].forEach((evt) => drop.addEventListener(evt, (e) => { e.preventDefault(); drop.classList.add('is-dragover'); }));
+        ['dragleave', 'drop'].forEach((evt) => drop.addEventListener(evt, () => drop.classList.remove('is-dragover')));
+        drop.addEventListener('drop', (e) => {
+          e.preventDefault();
+          const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []);
+          if (files.length) Promise.all(files.map((f) => add(f))).then(render);
+        });
+
+        function render() {
+          const items = list();
+          grid.replaceChildren();
+          if (!items.length) { grid.appendChild(widgets.emptyState({ icon: 'image', title: 'No assets yet', message: 'Upload images to reuse them across the document.' })); return; }
+          for (const rec of items) {
+            const card = cardEl(rec, () => { store.select([]); });
+            const del = widgets.iconButton({ icon: 'trash', label: 'Delete ' + rec.name, size: 'sm', className: 'apb-asset-card-delete', onClick: (e) => { e.stopPropagation(); remove(rec.id); render(); } });
+            card.appendChild(del);
+            grid.appendChild(card);
+          }
+        }
+        render();
+        const off = store.on('change', (payload) => { if (payload && payload.global) render(); });
+        return { destroy: () => { if (off) off(); } };
+      }
+
+      /* ------------------------------------------------------------- picker */
+
+      function pick(opts) {
+        const o = opts || {};
+        return new Promise((resolve) => {
+          if (!app.ui || typeof app.ui.dialog !== 'function') { resolve(null); return; }
+          let settled = false;
+          const finish = (id) => { if (!settled) { settled = true; resolve(id); } };
+          const grid = h('div', { class: 'apb-assets-grid' });
+          const input = fileInputEl(o.accept || 'image/*', (files) => {
+            if (!files.length) return;
+            add(files[0]).then((id) => { finish(id); dlg.close(); });
+          });
+          const uploadBtn = widgets.button({ label: 'Upload…', icon: 'plus', size: 'sm' });
+          uploadBtn.addEventListener('click', () => input.click());
+          function render() {
+            const items = list();
+            grid.replaceChildren();
+            if (!items.length) { grid.appendChild(widgets.emptyState({ icon: 'image', title: 'No assets yet', message: 'Upload an image to get started.' })); return; }
+            for (const rec of items) grid.appendChild(cardEl(rec, (id) => { finish(id); dlg.close(); }));
+          }
+          render();
+          const content = h('div', { class: 'apb-assets-picker' }, h('div', { class: 'apb-templates-grid' }, uploadBtn, input), grid);
+          const dlg = app.ui.dialog({
+            title: 'Choose an image', wide: true, content,
+            actions: [{ label: 'Cancel', kind: 'cancel', run: (close) => { finish(null); close(); } }],
+            dismissible: true
+          });
+        });
+      }
+
+      app.services = app.services || {};
+      app.services.assets = { add, pick, url, list, remove };
+
+      if (typeof app.ui.registerPanel === 'function') {
+        app.ui.registerPanel({ id: 'assets', side: 'left', title: 'Assets', icon: 'image', order: 20, mount });
+      }
+    }
+  });
+})();
 </script>
 <script data-src="js/features/components.js">
-/* stub — owned by C2 */
+/*
+ * components — `component.create`/`component.detach` commands (referenced by `shell.js`'s
+ * `CONTEXT_GROUPS` since B2 but never registered until now — right-clicking a selection has always
+ * had a slot for "Create component" in its menu, just nothing behind it) plus a left "Components"
+ * panel to browse and insert them. `docops.js` already has the node-tree operations
+ * (`createComponent instantiate detach`); this only adds UI and the one operation docops doesn't
+ * own — deleting a component *definition* (`doc.components[id]` + its master subtree), which is a
+ * doc-level resource like `assets`/`tokens`, not a node-tree edit, so it's handled directly here
+ * with `store.transact` rather than added to docops (same reasoning as `features/assets.js`).
+ */
+(function () {
+  'use strict';
+
+  APB.plugin({
+    id: 'components',
+    order: 34,
+    requires: ['widgets', 'icons'],
+
+    init(app) {
+      const widgets = APB.require('widgets');
+      const icons = APB.require('icons');
+      const { h } = widgets;
+      const store = app.store;
+      const docops = app.docops;
+
+      function removeComponent(id) {
+        const comp = (store.doc.components || {})[id];
+        if (!comp) return false;
+        store.transact('Delete component', (tx) => {
+          if (tx.doc.nodes[comp.root]) tx.removeNode(comp.root);
+          const next = Object.assign({}, tx.doc.components);
+          delete next[id];
+          tx.setDocField('components', next);
+        });
+        return true;
+      }
+
+      function mount(container) {
+        const list = h('div', { class: 'apb-components-list' });
+        const el = h('div', { class: 'apb-panel-fill' },
+          h('div', { class: 'apb-panel-bar' }, h('strong', {}, 'Components')),
+          h('div', { class: 'apb-panel-scroll' }, list));
+        container.appendChild(el);
+
+        function render() {
+          const comps = Object.keys(store.doc.components || {}).map((id) => store.doc.components[id]);
+          list.replaceChildren();
+          if (!comps.length) {
+            list.appendChild(widgets.emptyState({
+              icon: 'component', title: 'No components yet',
+              message: 'Select one or more layers, then "Create component" (right-click menu or the command palette) to make one reusable.'
+            }));
+            return;
+          }
+          for (const c of comps) {
+            const row = h('button', { type: 'button', class: 'apb-component-row', title: 'Insert an instance of ' + (c.name || 'this component') },
+              icons.get('component', { size: 16 }), h('span', { class: 'apb-component-row-name' }, c.name || 'Component'));
+            const del = widgets.iconButton({
+              icon: 'trash', label: 'Delete ' + (c.name || 'this component'), size: 'sm',
+              onClick: (e) => { e.stopPropagation(); if (removeComponent(c.id)) render(); }
+            });
+            row.appendChild(del);
+            row.addEventListener('click', () => {
+              const id = docops.instantiate(app, c.id, {});
+              if (id && app.ui.announce) app.ui.announce((c.name || 'Component') + ' inserted');
+            });
+            list.appendChild(row);
+          }
+        }
+        render();
+        const off = store.on('change', (payload) => { if (payload && payload.global) render(); });
+        return { destroy: () => { if (off) off(); } };
+      }
+
+      if (app.commands && !app.commands.get('component.create')) {
+        app.commands.register({
+          id: 'component.create', title: 'Create component', category: 'Component', icon: 'component',
+          when: (a) => a.store.selection.length > 0 && a.store.selection.every((id) => { const n = a.store.doc.nodes[id]; return n && n.type !== 'page'; }),
+          run: (a) => {
+            const id = docops.createComponent(a, a.store.selection, {});
+            if (id && a.ui.announce) a.ui.announce('Component created');
+          }
+        });
+      }
+      if (app.commands && !app.commands.get('component.detach')) {
+        app.commands.register({
+          id: 'component.detach', title: 'Detach instance', category: 'Component', icon: 'component',
+          when: (a) => {
+            const n = a.store.selection.length === 1 ? a.store.doc.nodes[a.store.selection[0]] : null;
+            return !!n && n.type === 'instance';
+          },
+          run: (a) => docops.detach(a, a.store.selection[0])
+        });
+      }
+      if (typeof app.ui.registerPanel === 'function') {
+        app.ui.registerPanel({ id: 'components', side: 'left', title: 'Components', icon: 'component', order: 30, mount });
+      }
+    }
+  });
+})();
 </script>
 <!-- features (C3) -->
 <script data-src="js/features/storage.js">
-/* stub — owned by C3 */
+/*
+ * storage — `services.storage` (ARCHITECTURE.md §10): project persistence. IndexedDB database
+ * `apb` (stores `projects` keyed by id, `versions`, `kv`) with a `localStorage` fallback for
+ * origins where IndexedDB is unavailable or throws (notably `file://`, the app's primary
+ * distribution mode — this is why the fallback exists at all, not a nice-to-have). Autosaves the
+ * open document 800 ms after the last change and again on `pagehide`/`visibilitychange`, so
+ * closing the tab never loses the last edit. Not `@node-testable` — inherently storage/DOM-API
+ * heavy; `docops`'s page functions and `store.replaceDoc` (the two things this leans on) are unit
+ * tested there instead.
+ */
+(function () {
+  'use strict';
+
+  const DB_NAME = 'apb';
+  const DB_VERSION = 1;
+  const LAST_KEY = 'apb.v2.last';
+  const LS_PREFIX = 'apb.v2.project.';
+  const LS_INDEX_KEY = 'apb.v2.projects';
+  const AUTOSAVE_MS = 800;
+  /** Saved by the predecessor single-file app (see docs/ARCHITECTURE.md §10) — offered for import, never deleted by us. */
+  const LEGACY_KEYS = ['ultimateBuilderPlusLayout', 'ultimateBuilderLayout'];
+
+  function hasIDB() { return typeof indexedDB !== 'undefined'; }
+  function hasLS() { try { return typeof localStorage !== 'undefined' && !!localStorage; } catch (err) { return false; } }
+  function safeGet(key) { try { return localStorage.getItem(key); } catch (err) { return null; } }
+  function safeSet(key, value) { try { localStorage.setItem(key, value); } catch (err) { /* quota or blocked — ignored, save() surfaces failures */ } }
+  function safeRemove(key) { try { localStorage.removeItem(key); } catch (err) { /* ignored */ } }
+
+  function reqP(req) {
+    return new Promise((resolve, reject) => {
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  let dbPromise = null;
+  function openDB() {
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise((resolve, reject) => {
+      if (!hasIDB()) { reject(new Error('IndexedDB unavailable')); return; }
+      let req;
+      try { req = indexedDB.open(DB_NAME, DB_VERSION); } catch (err) { reject(err); return; }
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains('projects')) db.createObjectStore('projects', { keyPath: 'id' });
+        if (!db.objectStoreNames.contains('versions')) {
+          const vs = db.createObjectStore('versions', { keyPath: 'vid', autoIncrement: true });
+          vs.createIndex('projectId', 'projectId');
+        }
+        if (!db.objectStoreNames.contains('kv')) db.createObjectStore('kv');
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+      req.onblocked = () => reject(new Error('IndexedDB blocked (another tab holds an upgrade lock)'));
+    });
+    dbPromise.catch(() => { dbPromise = null; });
+    return dbPromise;
+  }
+
+  function objectStore(db, name, mode) { return db.transaction(name, mode).objectStore(name); }
+  const stripDoc = (rec) => ({ id: rec.id, name: rec.name, updatedAt: rec.updatedAt, thumb: rec.thumb || '' });
+  const byRecency = (a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || '');
+
+  const idbBackend = {
+    name: 'indexeddb',
+    async list() {
+      const db = await openDB();
+      const all = await reqP(objectStore(db, 'projects', 'readonly').getAll());
+      return all.map(stripDoc).sort(byRecency);
+    },
+    async save(project) {
+      const db = await openDB();
+      const tx = db.transaction('projects', 'readwrite');
+      tx.objectStore('projects').put(project);
+      return new Promise((resolve, reject) => {
+        tx.oncomplete = () => resolve(project.id);
+        tx.onerror = () => reject(tx.error);
+      });
+    },
+    async load(id) {
+      const db = await openDB();
+      const rec = await reqP(objectStore(db, 'projects', 'readonly').get(id));
+      return rec ? rec.doc : null;
+    },
+    async remove(id) {
+      const db = await openDB();
+      const tx = db.transaction('projects', 'readwrite');
+      tx.objectStore('projects').delete(id);
+      return new Promise((resolve, reject) => {
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(tx.error);
+      });
+    }
+  };
+
+  function lsIndex() { try { return JSON.parse(safeGet(LS_INDEX_KEY) || '[]'); } catch (err) { return []; } }
+  function lsSetIndex(list) { safeSet(LS_INDEX_KEY, JSON.stringify(list)); }
+
+  const lsBackend = {
+    name: 'localstorage',
+    async list() { return lsIndex().sort(byRecency); },
+    async save(project) {
+      // Let a QuotaExceededError from the (large) doc payload propagate — the index write below
+      // only happens once the payload itself is confirmed to fit.
+      localStorage.setItem(LS_PREFIX + project.id, JSON.stringify(project.doc));
+      lsSetIndex(lsIndex().filter((p) => p.id !== project.id).concat([stripDoc(project)]));
+      return project.id;
+    },
+    async load(id) {
+      const text = safeGet(LS_PREFIX + id);
+      return text ? JSON.parse(text) : null;
+    },
+    async remove(id) {
+      safeRemove(LS_PREFIX + id);
+      lsSetIndex(lsIndex().filter((p) => p.id !== id));
+      return true;
+    }
+  };
+
+  let backendPromise = null;
+  function pickBackend() {
+    if (backendPromise) return backendPromise;
+    backendPromise = (async () => {
+      if (hasIDB()) {
+        try { await openDB(); return idbBackend; } catch (err) { /* fall through to localStorage */ }
+      }
+      return hasLS() ? lsBackend : null;
+    })();
+    return backendPromise;
+  }
+
+  APB.plugin({
+    id: 'storage',
+    order: 30,
+    requires: ['widgets', 'icons', 'schema'],
+
+    init(app) {
+      const widgets = APB.require('widgets');
+      const schema = APB.require('schema');
+      const icons = APB.require('icons');
+      icons.add('file', 'M6 3.5h8l4 4v12.5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-15.5a1 1 0 0 1 1-1z|M14 3.5v4h4');
+      icons.add('folder', 'M3.5 6.5h6l2 2.5h9v10a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1v-11.5a1 1 0 0 1 1-1z');
+      const { h } = widgets;
+      const store = app.store;
+
+      let currentId = safeGet(LAST_KEY) || store.doc.id;
+      let dirty = false;
+      let saving = false;
+      let timer = 0;
+      let statusText = 'Saved';
+      const statusListeners = new Set();
+
+      function setStatus(text) {
+        statusText = text;
+        statusListeners.forEach((fn) => { try { fn(text); } catch (err) { /* ignore */ } });
+      }
+
+      async function backend() {
+        const b = await pickBackend();
+        if (!b && app.ui && app.ui.toast) {
+          app.ui.toast('Nothing can be saved here — this browser has no working storage', { kind: 'warning', timeout: 6000 });
+        }
+        return b;
+      }
+
+      async function persist() {
+        const b = await backend();
+        if (!b) { setStatus('Unavailable'); return null; }
+        const doc = store.doc;
+        saving = true;
+        setStatus('Saving…');
+        try {
+          await b.save({ id: currentId, name: doc.name, updatedAt: doc.updatedAt, thumb: '', doc });
+          safeSet(LAST_KEY, currentId);
+          dirty = false;
+          setStatus('Saved');
+          app.emit('project:saved', { doc });
+        } catch (err) {
+          setStatus('Save failed');
+          app.log('autosave failed: ' + (err && err.message), { level: 'error' });
+          if (app.ui && app.ui.toast) app.ui.toast('Could not save — the browser storage may be full', { kind: 'error' });
+        } finally {
+          saving = false;
+        }
+        return currentId;
+      }
+
+      function scheduleSave() {
+        dirty = true;
+        setStatus('Unsaved changes');
+        clearTimeout(timer);
+        timer = setTimeout(persist, AUTOSAVE_MS);
+      }
+
+      store.on('change', (payload) => {
+        if (payload && payload.source === 'replace') return; // opening/creating a project isn't a user edit to autosave
+        scheduleSave();
+      });
+
+      const win = typeof window !== 'undefined' ? window : null;
+      if (win) {
+        win.addEventListener('pagehide', () => { if (dirty) { clearTimeout(timer); persist(); } });
+        if (typeof document !== 'undefined') {
+          document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden' && dirty) { clearTimeout(timer); persist(); }
+          });
+        }
+      }
+
+      async function listProjects() {
+        const b = await backend();
+        return b ? b.list() : [];
+      }
+
+      async function openProject(id) {
+        const b = await backend();
+        if (!b) return false;
+        const doc = await b.load(id);
+        if (!doc) { if (app.ui.toast) app.ui.toast('That project could not be found'); return false; }
+        store.replaceDoc(doc, { label: 'Open project' });
+        currentId = id;
+        safeSet(LAST_KEY, id);
+        dirty = false;
+        setStatus('Saved');
+        app.emit('project:loaded', { doc });
+        if (app.ui.announce) app.ui.announce('Opened ' + (doc.name || 'project'));
+        return true;
+      }
+
+      function newProject() {
+        const doc = schema.createDocument();
+        store.replaceDoc(doc, { label: 'New project' });
+        currentId = doc.id;
+        safeSet(LAST_KEY, doc.id);
+        dirty = false;
+        setStatus('Saved');
+        app.emit('project:loaded', { doc });
+        persist();
+      }
+
+      function saveAsNew() {
+        currentId = app.util.uid('doc');
+        scheduleSave();
+        if (app.ui.toast) app.ui.toast('Saved as a new project');
+      }
+
+      async function removeProject(id) {
+        const b = await backend();
+        if (!b) return false;
+        await b.remove(id);
+        if (id === currentId && app.ui.toast) app.ui.toast('That was the project you have open — it will re-save on your next edit');
+        return true;
+      }
+
+      /* ---------------------------------------------------------- Open dialog */
+
+      async function openBrowser() {
+        if (!app.ui || typeof app.ui.dialog !== 'function') return;
+        const list = h('div', { class: 'apb-projects-list' });
+        const empty = widgets.emptyState({ icon: 'file', title: 'No saved projects yet', message: 'Projects autosave as you work.' });
+
+        async function render() {
+          const projects = await listProjects();
+          list.replaceChildren();
+          if (!projects.length) { list.appendChild(empty); return; }
+          for (const p of projects) {
+            const row = h('div', { class: ['apb-project-row', p.id === currentId && 'is-current'] },
+              h('div', { class: 'apb-project-row-main' },
+                h('div', { class: 'apb-project-row-name' }, p.name || 'Untitled site'),
+                h('div', { class: 'apb-project-row-date' }, p.updatedAt ? new Date(p.updatedAt).toLocaleString() : '')),
+              widgets.iconButton({
+                icon: 'trash', label: 'Delete ' + (p.name || 'this project'), size: 'sm',
+                onClick: async (e) => { e.stopPropagation(); await removeProject(p.id); render(); }
+              }));
+            row.addEventListener('click', async () => { const ok = await openProject(p.id); if (ok) dlg.close(); });
+            list.appendChild(row);
+          }
+        }
+        await render();
+        const dlg = app.ui.dialog({
+          title: 'Open a project', wide: true, content: list,
+          actions: [
+            { label: 'New project', icon: 'plus', run: (close) => { newProject(); close(); } },
+            { label: 'Close', kind: 'cancel' }
+          ]
+        });
+      }
+
+      /* --------------------------------------------------------------- legacy */
+
+      function offerLegacyImport() {
+        if (currentId !== store.doc.id) return; // already opened a real project this session
+        if (Object.keys(store.doc.nodes).length > 2) return; // already has content — not a blank first run
+        const key = LEGACY_KEYS.find((k) => !!safeGet(k));
+        if (!key || !app.ui || !app.ui.toast) return;
+        app.ui.toast('Found a saved layout from the previous builder', {
+          kind: 'info', timeout: 10000,
+          action: {
+            label: 'Import',
+            run: async () => {
+              const importers = app.services && app.services.importers;
+              if (!importers) { app.ui.toast('Import is not available right now', { kind: 'warning' }); return; }
+              try {
+                const raw = JSON.parse(safeGet(key));
+                const html = typeof raw.html === 'string' ? raw.html : '';
+                if (!html) throw new Error('no markup in the saved layout');
+                await importers.fromHTML(html, {});
+                if (app.ui.toast) app.ui.toast('Imported — review and re-save when you’re happy with it');
+              } catch (err) {
+                app.log('legacy import failed: ' + (err && err.message), { level: 'error' });
+                if (app.ui.toast) app.ui.toast('Could not read that saved layout', { kind: 'error' });
+              }
+            }
+          }
+        });
+      }
+
+      /* -------------------------------------------------------------- wiring */
+
+      app.services = app.services || {};
+      app.services.storage = {
+        list: listProjects, save: persist, load: (id) => backend().then((b) => (b ? b.load(id) : null)),
+        remove: removeProject, open: openProject, new: newProject, saveAsNew,
+        currentId: () => currentId, isDirty: () => dirty
+      };
+
+      const commands = [
+        { id: 'file.new', title: 'New project', category: 'File', icon: 'plus', keys: [], run: () => newProject() },
+        { id: 'file.save', title: 'Save now', category: 'File', icon: 'save', keys: ['Mod+S'], run: () => persist() },
+        { id: 'file.saveAs', title: 'Save as a new project', category: 'File', icon: 'save', keys: ['Mod+Shift+S'], run: () => saveAsNew() },
+        { id: 'file.open', title: 'Open project…', category: 'File', icon: 'folder', keys: ['Mod+O'], run: () => openBrowser() }
+      ];
+      for (const def of commands) if (app.commands && !app.commands.get(def.id)) app.commands.register(def);
+      if (app.ui && typeof app.ui.registerMenuItem === 'function') {
+        ['file.new', 'file.open', 'file.save', 'file.saveAs'].forEach((id, i) => app.ui.registerMenuItem({ menu: 'file', command: id, order: i }));
+      }
+
+      if (app.ui && typeof app.ui.registerStatusItem === 'function') {
+        app.ui.registerStatusItem({
+          id: 'autosave', side: 'end', order: 5,
+          render: () => {
+            const label = h('span', { class: 'apb-autosave-status' }, statusText);
+            statusListeners.add((text) => { label.textContent = text; });
+            return label;
+          }
+        });
+      }
+
+      app.on('ready', () => setTimeout(offerLegacyImport, 300));
+    }
+  });
+})();
 </script>
 <script data-src="js/features/importers.js">
-/* stub — owned by C3 */
+/*
+ * importers — `services.importers` (ARCHITECTURE.md §9): turns pasted/dropped content into node
+ * specs. `fromHTML(html, { parent }) → Promise<ids>` is what `features/clipboard.js`'s HTML paste
+ * path calls; `fromFile(file) → Promise<result>` is what the canvas's file-drop handler
+ * (`canvas/interaction.js`) calls for a dropped `.json`. Best-effort, not a full HTML-to-design
+ * converter: headings/paragraphs/images/lists/tables/links/buttons map to real element types,
+ * absolutely-positioned content keeps its x/y/w/h/rotation (this also covers the predecessor
+ * single-file app's own saved layout — its `.element-wrapper` divs are exactly this shape, which is
+ * why `features/storage.js` can offer that saved data for import), everything else becomes a block
+ * of sanitized HTML via the `html` element type.
+ */
+(function () {
+  'use strict';
+
+  const BLOCK_TEXT_TAGS = new Set(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'blockquote']);
+
+  function pxNum(v) {
+    if (typeof v !== 'string') return null;
+    const m = /^(-?\d*\.?\d+)px$/.exec(v.trim());
+    return m ? parseFloat(m[1]) : null;
+  }
+
+  function rotationOf(transform) {
+    if (typeof transform !== 'string') return 0;
+    const m = /rotate\((-?\d*\.?\d+)deg\)/.exec(transform);
+    return m ? parseFloat(m[1]) : 0;
+  }
+
+  function isHandle(el) {
+    return el.nodeType === 1 && /\b(resize-handle|rotate-handle)\b/.test(el.className || '');
+  }
+
+  APB.plugin({
+    id: 'importers',
+    order: 31,
+    requires: ['sanitize', 'style', 'util'],
+
+    init(app) {
+      const sanitize = APB.require('sanitize');
+      const styleMod = APB.require('style');
+      const util = APB.require('util');
+      const win = typeof window !== 'undefined' ? window : null;
+
+      function currentParent(explicit) {
+        if (explicit && app.store.doc.nodes[explicit]) return explicit;
+        const view = app.store.view;
+        if (view.context && app.store.doc.nodes[view.context]) return view.context;
+        const pages = app.store.doc.pages || [];
+        const page = pages.find((p) => p.id === view.pageId) || pages[0];
+        return page ? page.root : null;
+      }
+
+      function textOf(el) { return (el.textContent || '').trim(); }
+
+      /** Best-effort tag → element-type mapping for one (already-sanitized) DOM element. */
+      function elementSpec(el) {
+        if (!el || el.nodeType !== 1) return null;
+        const tag = el.tagName.toLowerCase();
+        if (tag === 'img') return { type: 'image', props: { src: el.getAttribute('src') || '', alt: el.getAttribute('alt') || '' } };
+        if (tag === 'button' || (tag === 'a' && /\bbutton\b/.test(el.className || ''))) {
+          return { type: 'button', props: { text: textOf(el) || 'Button' } };
+        }
+        if (tag === 'ul' || tag === 'ol') {
+          const items = Array.from(el.children).filter((c) => c.tagName === 'LI').map((li) => textOf(li));
+          return items.length ? { type: 'list', props: { items, ordered: tag === 'ol' } } : null;
+        }
+        if (tag === 'table') {
+          const rows = Array.from(el.querySelectorAll('tr')).map((tr) => Array.from(tr.children).map((td) => textOf(td)));
+          return rows.length ? { type: 'table', props: { rows, header: !!el.querySelector('th') } } : null;
+        }
+        if (BLOCK_TEXT_TAGS.has(tag) || tag === 'span' || tag === 'a') {
+          const inner = el.innerHTML || '';
+          const html = inner && inner !== util.escapeHTML(textOf(el)) ? inner : null;
+          return { type: 'text', props: html ? { html } : { text: textOf(el) } };
+        }
+        const txt = textOf(el);
+        if (!el.children.length) return txt ? { type: 'text', props: { text: txt } } : null;
+        return el.innerHTML.trim() ? { type: 'html', props: { html: el.outerHTML } } : null;
+      }
+
+      /** An absolutely-positioned wrapper (pasted content or the legacy app's own export) → a fixed-box spec. */
+      function wrapperSpec(el) {
+        const decls = styleMod.parseDecls(el.getAttribute('style') || '');
+        const x = pxNum(decls.get('left')) || 0;
+        const y = pxNum(decls.get('top')) || 0;
+        const w = pxNum(decls.get('width')) || 160;
+        const h = pxNum(decls.get('height')) || 80;
+        const rotation = rotationOf(decls.get('transform'));
+        const content = el.querySelector(':scope > .element-content') || el;
+        const inner = Array.from(content.children).find((c) => !isHandle(c)) || content;
+        const spec = elementSpec(inner) || { type: 'frame' };
+        return Object.assign(spec, { x, y, w, h, rotation, sizing: { w: 'fixed', h: 'fixed' } });
+      }
+
+      function flowSpec(node) {
+        if (node.nodeType === 3) {
+          const txt = (node.textContent || '').trim();
+          return txt ? { type: 'text', props: { text: txt }, sizing: { w: 'fill', h: 'hug' } } : null;
+        }
+        if (node.nodeType !== 1 || isHandle(node)) return null;
+        if (/\belement-wrapper\b/.test(node.className || '')) return wrapperSpec(node);
+        const spec = elementSpec(node);
+        if (!spec) return null;
+        spec.sizing = spec.sizing || { w: 'fill', h: 'hug' };
+        return spec;
+      }
+
+      /** fromHTML(html, { parent }) → Promise<ids[]> — inserted top-level node ids, [] if nothing usable. */
+      async function fromHTML(html, opts) {
+        const o = opts || {};
+        if (!win || typeof win.DOMParser !== 'function' || typeof html !== 'string' || !html.trim()) return [];
+        const clean = sanitize.html(html, 'html');
+        if (!clean.trim()) return [];
+        let parsed;
+        try { parsed = new win.DOMParser().parseFromString('<div id="apb-import-root">' + clean + '</div>', 'text/html'); } catch (err) { return []; }
+        const root = parsed.getElementById('apb-import-root');
+        if (!root) return [];
+        const specs = Array.from(root.childNodes).map(flowSpec).filter(Boolean);
+        if (!specs.length) return [];
+        const parent = currentParent(o.parent);
+        if (!parent) return [];
+        return app.docops.insert(app, specs, { parent, select: true, label: 'Paste' });
+      }
+
+      /** fromFile(file) → Promise<{ opened: boolean, ids?: string[] }> — a dropped/opened .json file. */
+      async function fromFile(file) {
+        if (!file) throw new Error('No file given');
+        const name = file.name || '';
+        if (!/\.json$/i.test(name) && file.type !== 'application/json') throw new Error('Not a JSON file');
+        const text = await file.text();
+        let data;
+        try { data = JSON.parse(text); } catch (err) { throw new Error('That file is not valid JSON'); }
+        if (util.isPlainObject(data) && data.format === 'apb' && Array.isArray(data.pages)) {
+          app.store.replaceDoc(data, { label: 'Import project' });
+          if (app.services.storage && typeof app.services.storage.saveAsNew === 'function') app.services.storage.saveAsNew();
+          if (app.ui && app.ui.toast) app.ui.toast('Imported "' + (data.name || 'Untitled') + '"');
+          return { opened: true };
+        }
+        if (util.isPlainObject(data) && typeof data.html === 'string') {
+          const ids = await fromHTML(data.html, {});
+          if (app.ui && app.ui.toast) {
+            app.ui.toast(ids.length ? 'Imported ' + util.plural(ids.length, 'element') + ' from the saved layout' : 'Nothing recognizable in that file');
+          }
+          return { opened: false, ids };
+        }
+        throw new Error('Unrecognized project file');
+      }
+
+      app.services = app.services || {};
+      app.services.importers = { fromHTML, fromFile };
+
+      if (app.commands && !app.commands.get('file.import')) {
+        app.commands.register({
+          id: 'file.import', title: 'Import file…', category: 'File', icon: 'folder',
+          run: () => {
+            if (!win || typeof document === 'undefined') return;
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.json,application/json';
+            input.addEventListener('change', () => {
+              const f = input.files && input.files[0];
+              if (f) {
+                fromFile(f).catch((err) => { if (app.ui.toast) app.ui.toast((err && err.message) || 'Import failed', { kind: 'error' }); });
+              }
+            });
+            input.click();
+          }
+        });
+      }
+      if (app.ui && typeof app.ui.registerMenuItem === 'function') {
+        app.ui.registerMenuItem({ menu: 'file', command: 'file.import', order: 5, separatorBefore: true });
+      }
+    }
+  });
+})();
 </script>
 <script data-src="js/features/exporters.js">
 /* @node-testable */
@@ -26971,7 +28100,119 @@ if (typeof document !== 'undefined') APB.require('exporters');
 </script>
 <!-- features (C4) -->
 <script data-src="js/features/pages.js">
-/* stub — owned by C4 */
+/*
+ * pages — multi-page management. `docops.js` already has the node-tree operations
+ * (`createPage duplicatePage removePage reorderPages renamePage setPageSlug setPageSeo`); this
+ * plugin is just the UI over them plus the `pages.add`/`pages.manage` commands that
+ * `features/layers.js`'s page-switcher head calls (it checks `app.commands.get(...)` before
+ * showing those buttons, so this can load in either order). No panel of its own — the page
+ * *switcher* already lives in the Layers panel head; this only adds the "+"/manage affordances
+ * and the full editor dialog (rename, duplicate, reorder, delete, per-page SEO).
+ */
+(function () {
+  'use strict';
+
+  APB.plugin({
+    id: 'pages',
+    order: 33,
+    requires: ['widgets', 'icons'],
+
+    init(app) {
+      const widgets = APB.require('widgets');
+      const { h } = widgets;
+      const store = app.store;
+      const docops = app.docops;
+
+      function labeled(label, ctl) {
+        return h('div', { class: 'apb-actions-field' }, h('label', { class: 'apb-actions-field-label' }, label), ctl);
+      }
+
+      function addPage() {
+        const id = docops.createPage(store, {});
+        store.setView({ pageId: id, context: null });
+        if (app.ui.announce) app.ui.announce('Page added');
+        return id;
+      }
+
+      function openSeoEditor(pageId) {
+        const page = (store.doc.pages || []).find((p) => p.id === pageId);
+        if (!page || !app.ui || typeof app.ui.dialog !== 'function') return;
+        const seo = page.seo || {};
+        const titleField = widgets.textField({ value: seo.title, placeholder: page.name, onInput: (v, ctx) => { if (ctx && ctx.commit) docops.setPageSeo(store, pageId, { title: v }); } });
+        const descField = widgets.textArea({ value: seo.description, rows: 3, placeholder: 'Shown in search results and link previews', onInput: (v, ctx) => { if (ctx && ctx.commit) docops.setPageSeo(store, pageId, { description: v }); } });
+        const canonicalField = widgets.textField({ value: seo.canonical, type: 'url', placeholder: 'https://…', onInput: (v, ctx) => { if (ctx && ctx.commit) docops.setPageSeo(store, pageId, { canonical: v }); } });
+        const ogField = widgets.textField({ value: seo.ogImage, type: 'url', placeholder: 'https://…/share-image.png', onInput: (v, ctx) => { if (ctx && ctx.commit) docops.setPageSeo(store, pageId, { ogImage: v }); } });
+        const slugField = widgets.textField({ value: page.slug, onInput: (v, ctx) => { if (ctx && ctx.commit) docops.setPageSlug(store, pageId, v); } });
+        const noindexToggle = widgets.toggle({ label: 'Hide from search engines (noindex)', checked: !!seo.noindex, onInput: (v) => docops.setPageSeo(store, pageId, { noindex: v }) });
+        const content = h('div', { class: 'apb-page-seo-form' },
+          labeled('URL slug (used by "Export → Site")', slugField),
+          labeled('SEO title', titleField),
+          labeled('Meta description', descField),
+          labeled('Canonical URL', canonicalField),
+          labeled('Social share image URL', ogField),
+          h('div', { class: 'apb-actions-field apb-actions-field--toggle' }, noindexToggle));
+        app.ui.dialog({ title: 'Page settings — ' + (page.name || 'Page'), wide: true, content, actions: [{ label: 'Done', kind: 'cancel' }] });
+      }
+
+      function openManager() {
+        if (!app.ui || typeof app.ui.dialog !== 'function') return;
+        const list = h('div', { class: 'apb-pages-list' });
+
+        function move(id, delta) {
+          const pages = store.doc.pages || [];
+          const i = pages.findIndex((p) => p.id === id);
+          const j = i + delta;
+          if (i === -1 || j < 0 || j >= pages.length) return;
+          const order = pages.map((p) => p.id);
+          const tmp = order[i]; order[i] = order[j]; order[j] = tmp;
+          docops.reorderPages(store, order);
+          render();
+        }
+
+        function render() {
+          const pages = store.doc.pages || [];
+          list.replaceChildren();
+          pages.forEach((p, i) => {
+            const nameField = widgets.textField({
+              value: p.name, ariaLabel: 'Page name',
+              onInput: (v, ctx) => { if (ctx && ctx.commit) { docops.renamePage(store, p.id, v); render(); } }
+            });
+            const row = h('div', { class: ['apb-page-row', p.id === store.view.pageId && 'is-active'] },
+              h('div', { class: 'apb-page-row-name' }, nameField),
+              widgets.iconButton({
+                icon: 'arrow-right', label: 'Switch to ' + (p.name || 'this page'), size: 'sm',
+                onClick: () => { store.setView({ pageId: p.id, context: null }); render(); }
+              }),
+              widgets.iconButton({ icon: 'copy', label: 'Duplicate ' + (p.name || 'this page'), size: 'sm', onClick: () => { docops.duplicatePage(store, p.id); render(); } }),
+              widgets.iconButton({ icon: 'chevron-up', label: 'Move up', size: 'sm', disabled: i === 0, onClick: () => move(p.id, -1) }),
+              widgets.iconButton({ icon: 'chevron-down', label: 'Move down', size: 'sm', disabled: i === pages.length - 1, onClick: () => move(p.id, 1) }),
+              widgets.iconButton({ icon: 'settings', label: 'Page settings', size: 'sm', onClick: () => openSeoEditor(p.id) }),
+              widgets.iconButton({
+                icon: 'trash', label: 'Delete ' + (p.name || 'this page'), size: 'sm', disabled: pages.length <= 1,
+                onClick: () => { if (docops.removePage(store, p.id)) render(); }
+              }));
+            list.appendChild(row);
+          });
+        }
+        render();
+        app.ui.dialog({
+          title: 'Pages', wide: true, content: list,
+          actions: [{ label: 'Add page', icon: 'plus', run: () => { addPage(); render(); } }, { label: 'Done', kind: 'cancel' }]
+        });
+      }
+
+      if (app.commands && !app.commands.get('pages.add')) {
+        app.commands.register({ id: 'pages.add', title: 'Add page', category: 'Insert', icon: 'plus', run: () => addPage() });
+      }
+      if (app.commands && !app.commands.get('pages.manage')) {
+        app.commands.register({ id: 'pages.manage', title: 'Manage pages…', category: 'File', icon: 'folder', run: () => openManager() });
+      }
+      if (app.ui && typeof app.ui.registerMenuItem === 'function') {
+        app.ui.registerMenuItem({ menu: 'file', command: 'pages.manage', order: 6 });
+      }
+    }
+  });
+})();
 </script>
 <script data-src="js/features/motion.js">
 /* stub — owned by C4 */

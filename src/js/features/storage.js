@@ -304,7 +304,7 @@
                 const raw = JSON.parse(safeGet(key));
                 const html = typeof raw.html === 'string' ? raw.html : '';
                 if (!html) throw new Error('no markup in the saved layout');
-                await importers.fromHTML(app, html, { target: 'context' });
+                await importers.fromHTML(html, {});
                 if (app.ui.toast) app.ui.toast('Imported — review and re-save when you’re happy with it');
               } catch (err) {
                 app.log('legacy import failed: ' + (err && err.message), { level: 'error' });

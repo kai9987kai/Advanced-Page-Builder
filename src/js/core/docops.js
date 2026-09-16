@@ -1400,6 +1400,21 @@ APB.define('docops', ['util', 'geometry', 'schema'], function (util, geometry, s
     });
   }
 
+  /** setPageSlug(target, pageId, slug) → boolean; slugifies and de-dupes against the other pages. */
+  function setPageSlug(target, pageId, slug) {
+    const { store } = resolve(target);
+    const doc = store.doc;
+    const idx = (doc.pages || []).findIndex((p) => p.id === pageId);
+    if (idx === -1) return false;
+    return store.transact('Change page URL', (tx) => {
+      const pages = tx.doc.pages.slice();
+      const clean = schema.uniqueSlug(Object.assign({}, tx.doc, { pages }), slug, pageId);
+      pages[idx] = Object.assign({}, pages[idx], { slug: clean });
+      tx.setDocField('pages', pages);
+      return true;
+    });
+  }
+
   /** setPageSeo(target, pageId, patch) → boolean; shallow-merges into that page's `seo`. */
   function setPageSeo(target, pageId, patch) {
     const { store } = resolve(target);
@@ -1609,7 +1624,7 @@ APB.define('docops', ['util', 'geometry', 'schema'], function (util, geometry, s
     insert, remove, duplicate, move, setBox, update, reparent,
     group, ungroup, wrap, align, distribute, tidy, radial, matchSize, zorder,
     setLocked, setHidden, fitGroup, makeResponsive,
-    createPage, duplicatePage, removePage, reorderPages, renamePage, setPageSeo,
+    createPage, duplicatePage, removePage, reorderPages, renamePage, setPageSlug, setPageSeo,
     createComponent, instantiate, detach,
     worldBox, worldBounds, toLocal, topLevel, sortDocOrder, isLocked
   };

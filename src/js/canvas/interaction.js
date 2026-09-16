@@ -1328,7 +1328,9 @@ APB.define('interaction', ['util', 'geometry', 'snapping', 'schema', 'elements',
         const file = list[i];
         const props = await assetProps(file);
         if (!props.src && !props.asset) continue;
-        const size = fitSize(await measureImage(props.src));
+        const assetsSvc = app.services && app.services.assets;
+        const measureSrc = props.src || (props.asset && assetsSvc && typeof assetsSvc.url === 'function' ? assetsSvc.url(props.asset) : '');
+        const size = fitSize(await measureImage(measureSrc));
         if (destroyed) return [];
         if (job.replace && own(store.doc.nodes, job.replace)) {
           const patch = { 'props.src': props.src, 'props.asset': props.asset, name: file.name || 'Image' };

@@ -4,6 +4,9 @@
 // shape from one frame into another keeping its position.
 export const name = 'canvas drawing tools, reorder, reparent and keyboard';
 export const viewport = { width: 1400, height: 900 };
+// The unrecognized-.json-drop step below intentionally triggers services.importers.fromFile()'s
+// error path (features/importers.js) and interaction.js logs it via console.error before toasting.
+export const allowErrors = [/import failed: Error: Unrecognized project file/];
 
 const frames = (page, n = 2) => page.eval((count) => new Promise((resolve) => {
   let left = count;
@@ -281,14 +284,24 @@ export async function run(page, { assert, log }) {
     const app = window.APB.app;
     const id = app.store.selection[0];
     const n = id ? app.store.doc.nodes[id] : null;
-    if (!n || n.type !== 'image' || !n.props.src) return null;
+    if (!n || n.type !== 'image') return null;
+    // services.assets (features/assets.js) is registered, so dropped images become an asset
+    // reference (props.asset) rather than an inline props.src data URL — see assetProps() in
+    // canvas/interaction.js.
+    const svc = app.services && app.services.assets;
+    const src = n.props.asset && svc ? svc.url(n.props.asset) : n.props.src;
+    if (!src) return null;
     const r = app.canvas.renderer.worldRect(id);
-    return { id, w: n.w, h: n.h, src: n.props.src.slice(0, 15), cx: r.x + r.w / 2, cy: r.y + r.h / 2 };
+    return { id, w: n.w, h: n.h, src: src.slice(0, 15), cx: r.x + r.w / 2, cy: r.y + r.h / 2 };
   }, 4000);
   assert.equal(image.src, 'data:image/png;', 'the dropped image became a data URL');
   assert.ok(image.w === 8 && image.h === 8, 'the natural size is used: ' + image.w + '×' + image.h);
   assert.ok(near(image.cx, 700, 2) && near(image.cy, 500, 2), 'placed at the drop point');
 
+  // services.importers (features/importers.js) is loaded, so this now goes through fromFile()
+  // rather than the "no importer" fallback; the fixture is deliberately not a recognizable project
+  // (missing `pages`) so it fails gracefully without touching the document, keeping the rest of
+  // this scenario's node/selection state intact for the steps that follow.
   const jsonDrop = await page.eval((x, y) => {
     const dt = new DataTransfer();
     dt.items.add(new File(['{"format":"apb"}'], 'project.apb.json', { type: 'application/json' }));
@@ -298,12 +311,12 @@ export async function run(page, { assert, log }) {
     el.dispatchEvent(new DragEvent('drop', opts));
     return { before, after: Object.keys(window.APB.app.store.doc.nodes).length };
   }, dropAt.x, dropAt.y);
-  assert.equal(jsonDrop.after, jsonDrop.before, 'a .json drop inserts nothing while no importer is loaded');
+  assert.equal(jsonDrop.after, jsonDrop.before, 'an unrecognized .json drop inserts nothing');
   const toastText = await page.waitFor(() => {
     const all = Array.from(document.querySelectorAll('.apb-toast')).map((t) => t.textContent).join(' | ');
-    return /not available yet/.test(all) ? all : null;
+    return /could not import/i.test(all) ? all : null;
   }, 2000);
-  assert.ok(/not available yet/.test(toastText), 'it explains that importing is not available yet: ' + toastText);
+  assert.ok(/could not import/i.test(toastText), 'it explains the import failed: ' + toastText);
 
   /* --------------------------------------------- touch long-press menu */
   const pressAt = await center(stack.kids[0]);

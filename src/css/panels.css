@@ -66,6 +66,15 @@
   min-width: 0;
 }
 
+.apb-layers-page-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--apb-font-size-sm);
+}
+
 .apb-layers-search {
   padding: var(--apb-space-2);
   flex: 0 0 auto;

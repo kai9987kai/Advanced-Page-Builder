@@ -322,7 +322,9 @@ export async function run(page, { assert, log }) {
     });
     return { page: made.page.id, root: made.root.id };
   });
-  await page.waitFor(() => !document.querySelector('.apb-layers-head').hidden);
+  // The head shows an "Add page" button even with one page now, so its visibility no longer signals
+  // "the second page has been rendered" — wait for the actual page-switcher <select> instead.
+  await page.waitFor(() => !!document.querySelector('.apb-layers-page select'));
   const switcher = await page.eval(() => {
     const sel = document.querySelector('.apb-layers-page select');
     return {
