@@ -347,6 +347,123 @@ APB.define('exporters', ['schema', 'vdom', 'style', 'sanitize', 'util', 'actions
       init(app) {
         app.services = app.services || {};
         app.services.exporters = api;
+        const widgets = APB.require('widgets');
+        const { h } = widgets;
+
+        function downloadBlob(blob, filename) {
+          if (typeof document === 'undefined') return;
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }
+
+        function pageChoices() {
+          const pages = (app.store.doc.pages || []);
+          return pages.map((p) => ({ value: p.id, label: p.name || p.slug || p.id }));
+        }
+
+        function openExportDialog() {
+          if (!app.ui || typeof app.ui.dialog !== 'function') return;
+          const pages = app.store.doc.pages || [];
+          if (!pages.length) { if (app.ui.toast) app.ui.toast('Add a page before exporting'); return; }
+          let pageId = app.store.view.pageId || pages[0].id;
+          let format = 'html';
+          let minify = false;
+          let inlineAssets = true;
+
+          const code = h('pre', { class: 'apb-export-code', tabindex: '0' });
+          const meta = h('div', { class: 'apb-export-meta' });
+
+          function currentText() {
+            if (format === 'json') return jsonExport(app.store.doc);
+            const out = html(app.store.doc, { pageId, minify, inlineAssets, sourceComment: true });
+            return out ? out.html : '// Nothing to export';
+          }
+
+          function refresh() {
+            const text = currentText();
+            code.textContent = text;
+            meta.textContent = util.formatBytes(new Blob([text]).size) + (format === 'html' && !inlineAssets ? ' · assets extracted separately in a .zip' : '');
+          }
+
+          const controls = [];
+          if (pages.length > 1) {
+            controls.push(widgets.select({
+              ariaLabel: 'Page', options: pageChoices(), value: pageId,
+              onInput: (v) => { pageId = v; refresh(); }
+            }));
+          }
+          controls.push(widgets.select({
+            ariaLabel: 'Format', value: format,
+            options: [{ value: 'html', label: 'HTML' }, { value: 'json', label: 'Project JSON' }],
+            onInput: (v) => { format = v; refresh(); }
+          }));
+          controls.push(widgets.toggle({ label: 'Minify', checked: minify, onInput: (v) => { minify = v; refresh(); } }));
+          controls.push(widgets.toggle({ label: 'Inline assets', checked: inlineAssets, onInput: (v) => { inlineAssets = v; refresh(); } }));
+
+          refresh();
+          const content = h('div', { class: 'apb-export-dialog' },
+            h('div', { class: 'apb-export-controls' }, controls),
+            code, meta);
+
+          app.ui.dialog({
+            title: 'Export code', wide: true, content,
+            actions: [
+              {
+                label: 'Copy', icon: 'copy',
+                run: (close) => {
+                  const text = currentText();
+                  if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(text).then(
+                      () => { if (app.ui.toast) app.ui.toast('Copied to clipboard'); },
+                      () => { if (app.ui.toast) app.ui.toast('Clipboard access was blocked', { kind: 'warning' }); }
+                    );
+                  }
+                }
+              },
+              {
+                label: 'Download', icon: 'export', kind: 'primary',
+                run: (close) => {
+                  if (format === 'json') { downloadBlob(new Blob([currentText()], { type: 'application/json' }), (app.store.doc.name || 'site') + '.apb.json'); return; }
+                  if (!inlineAssets) {
+                    const out = html(app.store.doc, { pageId, minify, inlineAssets, sourceComment: true });
+                    if (out && out.files.length) {
+                      const page = pages.find((p) => p.id === pageId);
+                      const files = [{ path: (page && page.slug) ? page.slug + '.html' : 'index.html', data: out.html, mime: 'text/html' }].concat(out.files);
+                      downloadBlob(zip(files), (app.store.doc.name || 'site') + '.zip');
+                      return;
+                    }
+                  }
+                  downloadBlob(new Blob([currentText()], { type: 'text/html' }), (app.store.doc.name || 'page') + '.html');
+                }
+              },
+              { label: 'Close', kind: 'cancel' }
+            ]
+          });
+        }
+
+        if (app.commands && !app.commands.get('file.exportCode')) {
+          app.commands.register({
+            id: 'file.exportCode', title: 'Export code…', category: 'File', icon: 'export', keys: ['Mod+E'],
+            when: (a) => !!(a.store.doc.pages && a.store.doc.pages.length),
+            run: () => openExportDialog()
+          });
+        }
+        if (typeof app.ui.registerToolbarItem === 'function') {
+          app.ui.registerToolbarItem({
+            id: 'export', area: 'end', order: 21,
+            render: (a) => widgets.iconButton({
+              icon: 'export', label: 'Export code',
+              shortcut: a.commands.get('file.exportCode') ? a.commands.keysFor('file.exportCode') : null,
+              onClick: () => (a.commands.get('file.exportCode') ? a.commands.run('file.exportCode') : openExportDialog())
+            })
+          });
+        }
       }
     });
   }

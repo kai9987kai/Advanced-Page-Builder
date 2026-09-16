@@ -1,1 +1,141 @@
-/* stub — owned by C4 */
+/*
+ * tools — dialogs for the export/preview/templates tools (ARCHITECTURE.md §11; `features/exporters.js`,
+ * `features/templates.js`). Shared panel primitives live in panels.css; this file only styles the
+ * dialog bodies those two plugins build.
+ */
+
+/* ------------------------------------------------------------- export dialog */
+
+.apb-export-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--apb-space-3);
+  min-width: 0;
+}
+
+.apb-export-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--apb-space-3);
+}
+
+.apb-export-controls > .apb-select {
+  min-width: 140px;
+}
+
+.apb-export-code {
+  margin: 0;
+  max-height: 52vh;
+  overflow: auto;
+  padding: var(--apb-space-3);
+  border: 1px solid var(--apb-border);
+  border-radius: var(--apb-radius-2);
+  background: var(--apb-surface-2);
+  color: var(--apb-text);
+  font: var(--apb-font-size-sm) / 1.55 var(--apb-font-mono);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.apb-export-meta {
+  font-size: var(--apb-font-size-xs);
+  color: var(--apb-text-muted);
+}
+
+/* ------------------------------------------------------------ templates gallery */
+
+.apb-templates-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--apb-space-3);
+  max-height: 60vh;
+  overflow: auto;
+  padding: 2px;
+}
+
+.apb-template-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--apb-space-2);
+  padding: var(--apb-space-3);
+  border: 1px solid var(--apb-border);
+  border-radius: var(--apb-radius-3);
+  background: var(--apb-surface);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.apb-template-card:hover,
+.apb-template-card:focus-visible {
+  border-color: var(--apb-accent);
+  background: var(--apb-accent-soft);
+  outline: none;
+}
+
+.apb-template-card-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 72px;
+  border-radius: var(--apb-radius-2);
+  background: var(--apb-surface-2);
+  color: var(--apb-text-muted);
+}
+
+.apb-template-card-title {
+  font-size: var(--apb-font-size-md);
+  font-weight: 600;
+}
+
+.apb-template-card-desc {
+  font-size: var(--apb-font-size-xs);
+  color: var(--apb-text-muted);
+  line-height: 1.4;
+}
+
+/* ------------------------------------------------------------------ actions */
+
+.apb-actions-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--apb-space-3);
+}
+
+.apb-actions-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--apb-space-2);
+  padding: var(--apb-space-3);
+  border: 1px solid var(--apb-border);
+  border-radius: var(--apb-radius-2);
+  background: var(--apb-surface-2);
+}
+
+.apb-actions-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--apb-space-2);
+}
+
+.apb-actions-card-head > .apb-select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.apb-actions-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.apb-actions-field--toggle {
+  flex-direction: row;
+  align-items: center;
+}
+
+.apb-actions-field-label {
+  font-size: var(--apb-font-size-xs);
+  color: var(--apb-text-muted);
+}
