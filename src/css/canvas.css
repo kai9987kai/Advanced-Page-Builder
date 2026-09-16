@@ -477,3 +477,73 @@
   stroke: #ffffff;
   fill: none;
 }
+
+/* ------------------------------------------------------------------ *
+ * Drop targets, stack insertion indicator, Alt distance measurement   *
+ * (B1b-2: drawing tools, reparenting, keyboard model)                 *
+ * ------------------------------------------------------------------ */
+
+.apb-overlay .apb-ov-highlight {
+  fill: var(--apb-ov-accent-soft);
+  stroke: var(--apb-ov-accent);
+  stroke-width: 2;
+  stroke-dasharray: 5 3;
+}
+
+.apb-overlay .apb-ov-indicator {
+  fill: none;
+  stroke: var(--apb-ov-accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.apb-overlay .apb-ov-measure {
+  fill: none;
+  stroke: var(--apb-ov-guide);
+  stroke-width: 1;
+}
+
+.apb-overlay .apb-ov-measure-label rect {
+  fill: var(--apb-ov-guide);
+}
+
+.apb-overlay .apb-ov-measure-label text {
+  fill: #ffffff;
+}
+
+@media (forced-colors: active) {
+  .apb-overlay .apb-ov-highlight {
+    fill: none;
+    stroke: Highlight;
+  }
+
+  .apb-overlay .apb-ov-measure-label text {
+    fill: HighlightText;
+  }
+}
+
+/* The image tool's file input: reachable for the browser, invisible and inert for everyone else. */
+.apb-viewport .apb-canvas-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Drawing tools: the container under the pointer is outlined, content stays inert. */
+.apb-viewport[data-tool="frame"] .apb-ov-hover,
+.apb-viewport[data-tool="section"] .apb-ov-hover,
+.apb-viewport[data-tool="text"] .apb-ov-hover,
+.apb-viewport[data-tool="rect"] .apb-ov-hover,
+.apb-viewport[data-tool="ellipse"] .apb-ov-hover,
+.apb-viewport[data-tool="line"] .apb-ov-hover,
+.apb-viewport[data-tool="image"] .apb-ov-hover {
+  stroke-dasharray: 4 3;
+}

@@ -2,8 +2,9 @@
  * overlay — screen-space selection UI drawn into canvas.overlayEl (ARCHITECTURE.md §7).
  *
  * Draws (in this order): hover outline, per-node selection outlines, selection box, rotate handle,
- * 8 resize handles, "W × H" size label, lock badges, marquee, snap guides, equal-spacing labels and
- * the rotation tooltip. The SVG never receives pointer events: `hitTest(clientX, clientY)` answers
+ * 8 resize handles, "W × H" size label, lock badges, the drop-target container highlight, the stack
+ * insertion indicator, Alt-hover distance measurements, marquee, snap guides, equal-spacing labels
+ * and the rotation tooltip. The SVG never receives pointer events: `hitTest(clientX, clientY)` answers
  * which handle / rotation zone / body is under a point, so the renderer's hit testing stays exact.
  *
  * Geometry is measured in page coordinates (renderer.worldRect) only when the selection, the document
@@ -29,7 +30,11 @@ APB.define('overlay', ['geometry'], function (geometry) {
   const SMALL_EDGE = 20;
   const MAX_BADGES = 64;
   const MAX_SPACING_LABELS = 32;
-  const TRANSIENT_KEYS = ['marquee', 'guides', 'spacing', 'rotation', 'hideHandles', 'hideHover', 'hideSelection', 'label'];
+  const MAX_MEASURES = 8;
+  const TRANSIENT_KEYS = [
+    'marquee', 'guides', 'spacing', 'rotation', 'hideHandles', 'hideHover', 'hideSelection', 'label',
+    'highlight', 'indicator', 'measure'
+  ];
 
   const cursorCache = new Map();
 
@@ -79,7 +84,8 @@ APB.define('overlay', ['geometry'], function (geometry) {
 
     const transient = {
       marquee: null, guides: [], spacing: [], rotation: null,
-      hideHandles: false, hideHover: false, hideSelection: false, label: null
+      hideHandles: false, hideHover: false, hideSelection: false, label: null,
+      highlight: null, indicator: null, measure: null
     };
 
     let geomStale = true;
@@ -123,6 +129,10 @@ APB.define('overlay', ['geometry'], function (geometry) {
     const sizeBg = s('rect', null, sizeLabel, { rx: '3', ry: '3', height: '18' });
     const sizeText = s('text', null, sizeLabel, { 'text-anchor': 'middle', 'dominant-baseline': 'central' });
     const layerHost = s('g', 'apb-ov-layers', root);
+    const highlightPath = s('path', 'apb-ov-highlight', root);
+    const indicatorPath = s('path', 'apb-ov-indicator', root);
+    const measurePath = s('path', 'apb-ov-measure', root);
+    const measureLabels = s('g', 'apb-ov-measure-labels', root);
     const marqueeRect = s('rect', 'apb-ov-marquee', root);
     const guidePath = s('path', 'apb-ov-guide', root);
     const spacingPath = s('path', 'apb-ov-spacing', root);
@@ -133,6 +143,7 @@ APB.define('overlay', ['geometry'], function (geometry) {
     const layers = new Map();
     const badges = [];
     const spacingPool = [];
+    const measurePool = [];
 
     /* --------------------------------------------------------- helpers */
 
@@ -515,11 +526,92 @@ APB.define('overlay', ['geometry'], function (geometry) {
       show(tip, true);
     }
 
+    /* ------------------------------------- drop target / reorder / measure */
+
+    /** `highlight`: a node id or a page rect — the container a drag would drop into. */
+    function drawHighlight() {
+      const hl = transient.highlight;
+      let r = null;
+      if (typeof hl === 'string' && hl) r = renderer().worldRect(hl);
+      else if (hl && Number.isFinite(hl.x) && Number.isFinite(hl.y)) r = hl;
+      if (!r || !(r.w > 0 || r.h > 0)) { show(highlightPath, false); return; }
+      attr(highlightPath, 'd', polyPath(polygon(r), !r.rotation));
+      show(highlightPath, true);
+    }
+
+    /** `indicator`: the insertion line of a stack reorder, in page coordinates. */
+    function drawIndicator() {
+      const ind = transient.indicator;
+      if (!ind || !Number.isFinite(ind.x1) || !Number.isFinite(ind.y1)) { show(indicatorPath, false); return; }
+      const a = project(ind.x1, ind.y1);
+      const b = project(Number.isFinite(ind.x2) ? ind.x2 : ind.x1, Number.isFinite(ind.y2) ? ind.y2 : ind.y1);
+      const cap = 5;
+      let d;
+      if (Math.abs(b.y - a.y) <= Math.abs(b.x - a.x)) {
+        const y = crisp((a.y + b.y) / 2);
+        d = 'M' + a.x.toFixed(1) + ' ' + y + 'H' + b.x.toFixed(1) +
+          'M' + crisp(a.x) + ' ' + (y - cap) + 'v' + cap * 2 + 'M' + crisp(b.x) + ' ' + (y - cap) + 'v' + cap * 2;
+      } else {
+        const x = crisp((a.x + b.x) / 2);
+        d = 'M' + x + ' ' + a.y.toFixed(1) + 'V' + b.y.toFixed(1) +
+          'M' + (x - cap) + ' ' + crisp(a.y) + 'h' + cap * 2 + 'M' + (x - cap) + ' ' + crisp(b.y) + 'h' + cap * 2;
+      }
+      attr(indicatorPath, 'd', d);
+      show(indicatorPath, true);
+    }
+
+    /** `measure`: Alt-hover distances — `[{ axis, from, to, pos, label }]` like snapping spacing entries. */
+    function drawMeasure() {
+      const list = Array.isArray(transient.measure) ? transient.measure.slice(0, MAX_MEASURES) : [];
+      let d = '';
+      let used = 0;
+      for (const m of list) {
+        if (!m || !Number.isFinite(m.from) || !Number.isFinite(m.to) || !Number.isFinite(m.pos)) continue;
+        const along = m.axis === 'x';
+        const a = along ? project(m.from, m.pos) : project(m.pos, m.from);
+        const b = along ? project(m.to, m.pos) : project(m.pos, m.to);
+        let mid;
+        if (along) {
+          const y = crisp(a.y);
+          d += 'M' + a.x.toFixed(1) + ' ' + y + 'H' + b.x.toFixed(1) +
+            'M' + crisp(a.x) + ' ' + (y - 4) + 'v8M' + crisp(b.x) + ' ' + (y - 4) + 'v8';
+          mid = { x: (a.x + b.x) / 2, y: y - 11 };
+        } else {
+          const x = crisp(a.x);
+          d += 'M' + x + ' ' + a.y.toFixed(1) + 'V' + b.y.toFixed(1) +
+            'M' + (x - 4) + ' ' + crisp(a.y) + 'h8M' + (x - 4) + ' ' + crisp(b.y) + 'h8';
+          mid = { x: x + 20, y: (a.y + b.y) / 2 };
+        }
+        let lab = measurePool[used];
+        if (!lab) {
+          const g = s('g', 'apb-ov-label apb-ov-measure-label', measureLabels);
+          lab = { g, bg: s('rect', null, g, { rx: '3', ry: '3', height: '16' }), t: s('text', null, g, { 'text-anchor': 'middle', 'dominant-baseline': 'central' }) };
+          measurePool.push(lab);
+        }
+        const label = m.label != null ? String(m.label) : fmt(Math.abs(m.to - m.from));
+        text(lab.t, label);
+        const w = Math.ceil(label.length * 6.4 + 10);
+        attr(lab.bg, 'x', Math.round(mid.x - w / 2));
+        attr(lab.bg, 'y', Math.round(mid.y - 8));
+        attr(lab.bg, 'width', w);
+        attr(lab.t, 'x', Math.round(mid.x));
+        attr(lab.t, 'y', Math.round(mid.y));
+        show(lab.g, true);
+        used++;
+      }
+      for (let i = used; i < measurePool.length; i++) show(measurePool[i].g, false);
+      attr(measurePath, 'd', d);
+      show(measurePath, !!d);
+    }
+
     function refresh(info) {
       if (destroyed) return;
       ensureGeometry();
       drawHover();
       drawSelection();
+      drawHighlight();
+      drawIndicator();
+      drawMeasure();
       drawMarquee();
       drawGuides();
       drawTip();
@@ -607,7 +699,11 @@ APB.define('overlay', ['geometry'], function (geometry) {
     }
 
     function clear() {
-      set({ marquee: null, guides: [], spacing: [], rotation: null, hideHandles: false, hideHover: false, hideSelection: false, label: null });
+      set({
+        marquee: null, guides: [], spacing: [], rotation: null,
+        hideHandles: false, hideHover: false, hideSelection: false, label: null,
+        highlight: null, indicator: null, measure: null
+      });
     }
 
     /** Named <g> layer (page-independent, screen space) for other canvas features (drop indicators, measurements). */

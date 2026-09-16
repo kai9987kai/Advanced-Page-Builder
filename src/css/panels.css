@@ -1,1 +1,811 @@
-/* stub — owned by C1 */
+/* ==========================================================================
+   panels.css — styles for the side-panel features (Layers, Inspector, Tokens, …).
+
+   Section order mirrors the panel registration order; later panel agents append
+   their own section at the end of this file instead of editing earlier ones.
+   Shared primitives live in the first section so every panel looks alike.
+   ========================================================================== */
+
+/* --------------------------------------------------------- panel primitives */
+
+.apb-panel-fill {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.apb-panel-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--apb-space-2);
+  padding: var(--apb-space-2);
+  border-bottom: 1px solid var(--apb-border);
+  flex: 0 0 auto;
+}
+
+.apb-panel-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  position: relative;
+}
+
+/* ================================================================== layers */
+
+.apb-layers {
+  --apb-layer-h: 26px;
+  --apb-layer-indent: 12px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  font-size: var(--apb-font-size-sm);
+}
+
+.apb-layers-head {
+  display: flex;
+  align-items: center;
+  gap: var(--apb-space-2);
+  padding: var(--apb-space-2) var(--apb-space-2) 0;
+  flex: 0 0 auto;
+}
+
+.apb-layers-head[hidden] {
+  display: none;
+}
+
+.apb-layers-page-icon {
+  color: var(--apb-text-muted);
+  flex: 0 0 auto;
+}
+
+.apb-layers-head .apb-select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.apb-layers-search {
+  padding: var(--apb-space-2);
+  flex: 0 0 auto;
+}
+
+.apb-layers-scroll {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-bottom: var(--apb-space-4);
+}
+
+.apb-layers-scroll[hidden] {
+  display: none;
+}
+
+.apb-layers-tree {
+  position: relative;
+  min-height: 100%;
+}
+
+/* ------------------------------------------------------------------- rows */
+
+.apb-layer {
+  --apb-layer-depth: 0;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: var(--apb-layer-h);
+  box-sizing: border-box;
+  padding-inline: calc(var(--apb-space-1) + var(--apb-layer-depth) * var(--apb-layer-indent)) var(--apb-space-1);
+  color: var(--apb-text);
+  border-radius: var(--apb-radius-1);
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+
+.apb-layer:hover,
+.apb-layer.is-hover {
+  background: var(--apb-hover);
+}
+
+.apb-layer.is-selected {
+  background: var(--apb-accent-soft);
+  color: var(--apb-accent-text);
+}
+
+.apb-layer:focus-visible {
+  outline: 2px solid var(--apb-focus);
+  outline-offset: -2px;
+}
+
+.apb-layer.is-root {
+  font-weight: var(--apb-weight-semibold);
+}
+
+.apb-layer.is-hidden .apb-layer-name,
+.apb-layer.is-hidden .apb-layer-type,
+.apb-layer.is-locked .apb-layer-name {
+  opacity: 0.55;
+}
+
+.apb-layer.is-hidden .apb-layer-name {
+  font-style: italic;
+}
+
+.apb-layer.is-drag-source {
+  opacity: 0.45;
+}
+
+.apb-layer.is-drop-inside {
+  box-shadow: inset 0 0 0 2px var(--apb-accent);
+}
+
+.apb-layer-twisty {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--apb-text-muted);
+  cursor: pointer;
+}
+
+.apb-layer:not(.has-children) > .apb-layer-twisty {
+  cursor: default;
+}
+
+.apb-layer-type {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  color: var(--apb-text-muted);
+}
+
+.apb-layer.is-selected .apb-layer-type {
+  color: currentColor;
+}
+
+.apb-layer-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding-inline: 2px;
+}
+
+.apb-layer-name[hidden] {
+  display: none;
+}
+
+.apb-layer-rename {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: calc(var(--apb-layer-h) - 6px);
+  margin-inline: 2px;
+  padding-inline: 4px;
+  font: inherit;
+  color: var(--apb-text);
+  background: var(--apb-control-bg);
+  border: 1px solid var(--apb-accent);
+  border-radius: var(--apb-radius-1);
+}
+
+.apb-layer-rename:focus {
+  outline: 2px solid var(--apb-focus);
+  outline-offset: -1px;
+}
+
+.apb-layer-badge {
+  flex: 0 0 auto;
+  max-width: 88px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--apb-font-size-xs);
+  line-height: 1.4;
+  padding-inline: 4px;
+  border-radius: var(--apb-radius-1);
+  background: var(--apb-surface-3);
+  color: var(--apb-text-muted);
+}
+
+.apb-layer-badge.is-instance {
+  background: var(--apb-accent-soft);
+  color: var(--apb-accent-text);
+}
+
+.apb-layer-badge[hidden] {
+  display: none;
+}
+
+.apb-layer-actions {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.apb-layer-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--apb-radius-1);
+  background: transparent;
+  color: var(--apb-text-muted);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.apb-layer:hover .apb-layer-toggle,
+.apb-layer:focus-within .apb-layer-toggle,
+.apb-layer.is-selected .apb-layer-toggle,
+.apb-layer-toggle[aria-pressed="true"],
+.apb-layer-toggle:focus-visible {
+  opacity: 1;
+}
+
+.apb-layer-toggle:hover {
+  background: var(--apb-active);
+  color: var(--apb-text);
+}
+
+.apb-layer-toggle:focus-visible {
+  outline: 2px solid var(--apb-focus);
+  outline-offset: -2px;
+}
+
+.apb-layer-toggle[aria-pressed="true"] {
+  color: var(--apb-text);
+}
+
+/* ------------------------------------------------------- drop indicator */
+
+.apb-layers-indicator {
+  position: absolute;
+  inset-inline-end: var(--apb-space-2);
+  height: 2px;
+  margin-top: -1px;
+  background: var(--apb-accent);
+  border-radius: 2px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.apb-layers-indicator::before {
+  content: '';
+  position: absolute;
+  inset-inline-start: -3px;
+  top: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 2px solid var(--apb-accent);
+  background: var(--apb-surface);
+}
+
+.apb-layers-indicator[hidden] {
+  display: none;
+}
+
+.apb-layers.is-dragging .apb-layer {
+  cursor: grabbing;
+}
+
+.apb-layers-empty {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--apb-space-4);
+}
+
+.apb-layers-empty[hidden] {
+  display: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .apb-layer,
+  .apb-layer-toggle {
+    transition: background-color var(--apb-duration-fast) var(--apb-ease), opacity var(--apb-duration-fast) var(--apb-ease);
+  }
+}
+
+@media (forced-colors: active) {
+  .apb-layer.is-selected {
+    background: Highlight;
+    color: HighlightText;
+    forced-color-adjust: none;
+  }
+
+  .apb-layer.is-drop-inside {
+    box-shadow: inset 0 0 0 2px Highlight;
+  }
+
+  .apb-layers-indicator {
+    background: Highlight;
+  }
+
+  .apb-layer-toggle {
+    opacity: 1;
+  }
+}
+
+/* ============================================================== inspector
+   Design panel (features/inspector.js) + document styles (features/tokens.js).
+   Appended by C1b — the sections above belong to other panel agents.
+   ========================================================================== */
+
+.apb-inspector-head {
+  display: flex;
+  align-items: center;
+  gap: var(--apb-space-2);
+  padding: var(--apb-space-2);
+  border-bottom: 1px solid var(--apb-border);
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.apb-inspector-title {
+  display: flex;
+  align-items: center;
+  gap: var(--apb-space-2);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.apb-inspector-type {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  border-radius: var(--apb-radius-sm);
+  background: var(--apb-surface-2);
+  color: var(--apb-text-2);
+}
+
+.apb-inspector-name {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.apb-inspector-name input {
+  font-weight: 600;
+}
+
+.apb-inspector-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.apb-inspector-bp {
+  margin-right: 2px;
+  white-space: nowrap;
+}
+
+.apb-inspector-body {
+  padding-bottom: 24px;
+}
+
+.apb-inspector-section + .apb-inspector-section {
+  border-top: 1px solid var(--apb-border);
+}
+
+.apb-inspector-section .apb-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--apb-space-2);
+  padding: var(--apb-space-2) var(--apb-space-3) var(--apb-space-3);
+}
+
+.apb-inspector .apb-field-row.is-disabled {
+  opacity: 0.55;
+}
+
+/* two-column grid for paired numeric fields (X/Y, W/H, size/line-height) */
+.apb-field-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--apb-space-2);
+  align-items: end;
+}
+
+.apb-field-grid > .apb-field-row {
+  margin: 0;
+  min-width: 0;
+}
+
+.apb-field-grid-extra {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* ------------------------------------------------------------ 4-side control */
+
+.apb-sides {
+  display: flex;
+  align-items: center;
+  gap: var(--apb-space-2);
+  width: 100%;
+}
+
+.apb-sides > .apb-numberfield,
+.apb-sides > .apb-sides-grid {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.apb-sides-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.apb-sides-cell {
+  display: block;
+  min-width: 0;
+}
+
+.apb-sides-link[aria-pressed="true"] {
+  color: var(--apb-accent);
+}
+
+/* --------------------------------------------------------- alignment grid */
+
+.apb-aligngrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px;
+  width: 84px;
+  padding: 3px;
+  border: 1px solid var(--apb-border);
+  border-radius: var(--apb-radius-sm);
+  background: var(--apb-surface-2);
+}
+
+.apb-aligngrid-cell {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  border-radius: 3px;
+  padding: 0;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--apb-text-2);
+}
+
+.apb-aligngrid-cell:hover:not(:disabled) {
+  background: var(--apb-surface-1);
+}
+
+.apb-aligngrid-cell:focus-visible {
+  outline: 2px solid var(--apb-accent);
+  outline-offset: 1px;
+}
+
+.apb-aligngrid-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: currentColor;
+  opacity: 0.35;
+}
+
+.apb-aligngrid-cell.is-active {
+  background: var(--apb-surface-1);
+  color: var(--apb-accent);
+}
+
+.apb-aligngrid-cell.is-active .apb-aligngrid-dot {
+  opacity: 1;
+}
+
+.apb-aligngrid.is-mixed .apb-aligngrid-dot {
+  opacity: 0.2;
+}
+
+.apb-aligngrid[aria-disabled="true"] {
+  opacity: 0.55;
+}
+
+/* ------------------------------------------------------------ list editor */
+
+.apb-listedit {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.apb-listedit-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.apb-listedit-row > .apb-textfield {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.apb-listedit > .apb-btn {
+  align-self: flex-start;
+}
+
+/* ----------------------------------------------------------- table editor */
+
+.apb-tableedit {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  overflow-x: auto;
+}
+
+.apb-tableedit-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--apb-table-cols, 1), minmax(64px, 1fr)) auto;
+  gap: 2px;
+  align-items: center;
+}
+
+.apb-tableedit-corner {
+  display: block;
+}
+
+.apb-tableedit-bar {
+  display: flex;
+  gap: var(--apb-space-2);
+}
+
+/* ------------------------------------------------------------ icon picker */
+
+.apb-iconpick-wrap {
+  width: 100%;
+}
+
+.apb-iconpick {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--apb-space-2);
+  width: 100%;
+  min-height: 28px;
+  padding: 2px 8px;
+  border: 1px solid var(--apb-border);
+  border-radius: var(--apb-radius-sm);
+  background: var(--apb-surface-1);
+  color: var(--apb-text-1);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.apb-iconpick:focus-visible {
+  outline: 2px solid var(--apb-accent);
+  outline-offset: 1px;
+}
+
+.apb-iconpick-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.apb-iconpick-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 2px;
+  max-height: 240px;
+  overflow: auto;
+  margin-top: var(--apb-space-2);
+}
+
+.apb-iconpick-item {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  border-radius: var(--apb-radius-sm);
+  padding: 6px;
+  cursor: pointer;
+  color: var(--apb-text-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.apb-iconpick-item:hover,
+.apb-iconpick-item.is-active {
+  background: var(--apb-surface-2);
+  color: var(--apb-text-1);
+}
+
+.apb-iconpick-item:focus-visible {
+  outline: 2px solid var(--apb-accent);
+  outline-offset: -2px;
+}
+
+/* ----------------------------------------------------------- asset field */
+
+.apb-assetfield {
+  display: flex;
+  align-items: center;
+  gap: var(--apb-space-2);
+  width: 100%;
+}
+
+.apb-assetfield-thumb {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  border: 1px solid var(--apb-border);
+  border-radius: var(--apb-radius-sm);
+  background: var(--apb-surface-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  color: var(--apb-text-2);
+}
+
+.apb-assetfield-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* ------------------------------------------------------ instance overrides */
+
+.apb-override-row .apb-field-label {
+  font-size: 11px;
+  color: var(--apb-text-2);
+}
+
+/* ============================================================ doc styles */
+
+.apb-inspector-docstyles {
+  border-top: 1px solid var(--apb-border);
+}
+
+.apb-docstyles-section .apb-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--apb-space-2);
+  padding: var(--apb-space-2) var(--apb-space-3) var(--apb-space-3);
+}
+
+.apb-token-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.apb-token-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px var(--apb-space-2);
+  align-items: center;
+  padding: 6px;
+  border: 1px solid var(--apb-border);
+  border-radius: var(--apb-radius-sm);
+  background: var(--apb-surface-1);
+}
+
+.apb-token-lead {
+  display: flex;
+  align-items: center;
+  gap: var(--apb-space-2);
+  min-width: 0;
+}
+
+.apb-token-tail {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.apb-token-name {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.apb-token-swatch {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  border: 1px solid var(--apb-border);
+  background:
+    linear-gradient(var(--apb-token-color, transparent), var(--apb-token-color, transparent)),
+    repeating-conic-gradient(var(--apb-surface-2) 0% 25%, var(--apb-surface-1) 0% 50%) 0 0 / 8px 8px;
+}
+
+.apb-token-preview {
+  width: 28px;
+  flex: 0 0 auto;
+  text-align: center;
+  color: var(--apb-text-1);
+  overflow: hidden;
+}
+
+.apb-token-id {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  color: var(--apb-text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.apb-token-value {
+  width: 120px;
+  flex: 0 0 auto;
+}
+
+.apb-token-usage {
+  min-width: 20px;
+  justify-content: center;
+}
+
+.apb-font-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.apb-font-row {
+  display: flex;
+  align-items: center;
+  gap: var(--apb-space-2);
+}
+
+.apb-font-family {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.apb-font-add {
+  display: flex;
+  align-items: center;
+  gap: var(--apb-space-2);
+  flex-wrap: wrap;
+}
+
+.apb-font-add > .apb-textfield {
+  flex: 1 1 120px;
+  min-width: 0;
+}
+
+@media (forced-colors: active) {
+  .apb-aligngrid-cell.is-active {
+    background: Highlight;
+    color: HighlightText;
+    forced-color-adjust: none;
+  }
+
+  .apb-token-swatch,
+  .apb-assetfield-thumb {
+    border-color: CanvasText;
+  }
+}

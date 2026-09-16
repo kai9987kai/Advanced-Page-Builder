@@ -14,6 +14,8 @@ const frames = (page, n = 2) => page.eval((count) => new Promise((resolve) => {
 export async function run(page, { assert }) {
   await page.ready();
   await page.eval(() => APB.require('dialogs').toasts.forEach((t) => t.close()));
+  // this scenario asserts the bare shell, so the feature panels registered at boot step aside
+  await page.eval(() => { APB.app.ui.unregisterPanel('layers'); APB.app.ui.unregisterPanel('design'); });
 
   /* ------------------------------------------------------------ structure */
   const base = await page.eval(() => {

@@ -683,3 +683,144 @@ _(Implementers: append dated entries here when you extend a contract.)_
   Dialog classes: `apb-shortcuts-dialog` (rows `tr[data-command]`, filter by substring tokens, plus a static "Canvas" gesture section),
   `apb-about-dialog`. Menus: Edit, Arrange (Align/Distribute/Match size/Order/Rotate submenus), Help. Styles for palette and these
   dialogs are injected once as `<style id="apb-palette-style">` / `<style id="apb-basic-commands-style">` (static text).
+
+### 2026-09-16 — B1b-2 drawing tools, reparenting, keyboard model (§7) and `clipboard` (§9)
+- `interaction` tools `frame section text rect ellipse line image` (`hand` is handled by `viewport`, which pans on
+  `view.tool === 'hand'`). Drag draws (Shift = square, Alt = from the centre, `snapping.snapPoint` guides); a click creates
+  the type's default size centred on the pointer; afterwards the tool returns to `select` unless Shift is held. The parent is
+  the deepest container under the pointer that `elements.canContain` accepts (fallback: `view.context`, then the page root);
+  the `section` tool always appends to the page root at the flow index under the pointer. `text` starts editing immediately,
+  `image` opens the hidden file input (`input.apb-canvas-file-input` inside `.apb-viewport`) and fills `props.src`.
+- New `interaction` gesture `reorder` ({ ids, start }): stack children show an insertion indicator and commit one
+  `docops.reparent` on release. `move` also reparents: hovering another accepting container for 400 ms — immediately once the
+  pointer leaves the current parent — highlights it and drops into it on release, keeping the visual position (one undo entry).
+  New `ctx` helpers: `dropDetector(ids, { parent, reorder }) → { update(pt, force), result(), accepts(id) }`, `reorderChanges`,
+  `isStack`, `flowInfo(parentId, pt, skip)`, `indicatorFor`, `localRect(parentId, pageRect)`, `drawTarget(tool, pt)`,
+  `drawSnap(parentId)`, `createNode(tool, rect, target, pt)`, `nodeLabel`, `typeLabel`, `idsLabel`, `announceSelected`,
+  `openImagePicker(job)`, `repeat(ms)`. `ctx.history.finalize(mark, reapply, { force })` replays even from a single entry.
+  The instance also exposes `openImagePicker(job)` and `keyboard { nudge, enter, parent, sibling, all, none }`.
+  **Note for `docops` callers:** `store.doc` is the *pre-transaction* document inside a `store.transact` (only `tx.doc` is
+  live), so consecutive `docops` calls that depend on each other must be separate top-level transactions sharing a
+  `coalesce` key rather than nested ones.
+- `overlay` transient keys added: `highlight` (node id or page rect — drop target), `indicator` (`{ x1, y1, x2, y2 }` page
+  coords — stack insertion line), `measure` (`[{ axis, from, to, pos, label }]`, same shape as snapping spacing — Alt-hover
+  distances). Classes `apb-ov-highlight`, `apb-ov-indicator`, `apb-ov-measure`, `apb-ov-measure-label`.
+- Keyboard (only while `.apb-viewport` itself has focus): arrows nudge 1 px / Shift 10 px coalesced per burst (stack children
+  reorder instead), Enter selects the first child or edits text, Shift+Enter/Escape selects the parent (Escape with nothing
+  selected blurs the canvas), Tab/Shift+Tab cycle siblings, each announcing `Selected <name>, <type>`. Touch: a 500 ms
+  long press emits `canvas:contextmenu` (payload now also carries `pointerType`). Files dropped on the canvas become image
+  nodes at the drop point; `.json` goes to `services.importers.fromFile` when present, else a toast.
+- Commands registered by `interaction` (only when absent): `tool.select V`, `tool.hand H`, `tool.frame F`, `tool.section S`,
+  `tool.text T`, `tool.rect R`, `tool.ellipse O`, `tool.line L`, `tool.image Mod+Shift+K` (category "Tools", `checked` =
+  active tool), `view.toggleSnap`, and `select.all Mod+A`, `select.none Escape`, `select.parent Shift+Enter`,
+  `select.child Enter`, `select.next Tab`, `select.prev Shift+Tab` (category "Select", enabled only when the canvas is focused,
+  so Tab and Escape keep working everywhere else).
+- `features/clipboard.js` (plugin `clipboard`, order 20) → `app.services.clipboard`:
+  `copy(ids?) → Promise<ids>`, `cut(ids?)`, `paste({ inPlace, parent }) → Promise<ids>`, `pasteInPlace(opts)`,
+  `payload(ids?) → envelope|null`, `write(envelope)`, `read()`, `insertPayload(envelope, opts)`, `buffer`, `clear()`,
+  `FORMAT`, `CUSTOM_MIME`, `VERSION`. Envelope: `{ format: 'apb-clipboard', version: 2, roots, nodes, assets }` (whole
+  subtrees, plus the assets they reference). It is written as `web application/x-apb+json` + `text/plain` (the envelope) +
+  `text/html` (`vdom.toHTML` of the selection); an in-memory buffer and the DOM `copy`/`cut`/`paste` events are the fallback
+  when the async Clipboard API is unavailable or denied. Pasting: envelopes get new ids and cascade +16 px (paste-in-place
+  keeps the position and the original parent), images become `image` nodes (`services.assets.add` when present), HTML goes to
+  `services.importers.fromHTML` when present (else its text) and text becomes a `text` node. The target parent is the selected
+  container (unless it is part of what is being pasted), then the selection's parent, then `view.context`. Commands
+  `edit.copy Mod+C`, `edit.cut Mod+X`, `edit.paste Mod+V`, `edit.pasteInPlace Mod+Shift+V` + Edit menu entries.
+
+### 2026-09-16 — C1a `layers` panel (§8) and `css/panels.css`
+
+- `features/layers.js` (plugin `layers`, order 40) registers the left panel `{ id: 'layers', title: 'Layers',
+  icon: 'layers', order: 10 }`. It owns no service; other modules reach it through the store, the `layers:rename`
+  event and the DOM hooks below.
+- **Row order is document order** (`children[0]` first, i.e. reading / stack-flow order, the reverse of a paint-order
+  list): `Mod+ArrowDown` = `docops.zorder(…, 'forward')`, `Mod+ArrowUp` = `'backward'`.
+- DOM hooks (stable for tests and for other panels): `.apb-layers` (panel root, carries `apbLayers`),
+  `.apb-layers-head` (page switcher, shown only with ≥ 2 pages; `.apb-layers-page` is the `select`),
+  `.apb-layers-search input`, `.apb-layers-scroll`, `.apb-layers-tree[role=tree][aria-multiselectable]`,
+  rows `.apb-layer[role=treeitem][data-id][aria-level][aria-posinset][aria-setsize]` with
+  `.apb-layer-twisty`, `.apb-layer-type`, `.apb-layer-name`, `.apb-layer-badge`, `.apb-layer-eye`,
+  `.apb-layer-lock` (`aria-pressed`), the inline editor `.apb-layer-rename` and the drop line
+  `.apb-layers-indicator` (plus `.is-drop-inside` on an "inside" target).
+- `document.querySelector('.apb-layers').apbLayers` → `{ refresh(), flush(), rename(id), rowIds(), setQuery(text),
+  expandAll(), collapseAll(), activeId, virtual, renderedCount }` (mirrors `el.apbControl`; intended for tests and
+  sibling panels, not a cross-module contract).
+- The page/master root row is a drop target and an expand root but is **not** selectable (clicking it clears the
+  selection), so `edit.delete` can never reach a page root from the tree.
+- Selection is two-way: click replaces, Shift+click selects the visible range, Mod+click toggles, and
+  `store.on('selection')` only repaints the rows that changed (ancestors are expanded and the row is scrolled into
+  view when needed). `store.on('change')` schedules one rAF rebuild that is reconciled by node id. Above 200 rows the
+  tree renders only the scrolled window and reserves the rest with padding on the tree element.
+- `edit.rename` (F2) emits `layers:rename` `{ id }`; this plugin answers it by showing the panel and starting the
+  inline editor, and falls back to `ui.prompt` when the panel is unavailable. Renames are one `Rename layer`
+  transaction. Row context menus prepend Rename / Expand / Collapse to `ui.contextMenuItems({ nodeId })`.
+- Lock and visibility toggles call `docops.setLocked` / `docops.setHidden` for that row only (so hiding follows the
+  active breakpoint like every other geometric write).
+- `src/css/panels.css` starts with shared panel primitives (`.apb-panel-fill`, `.apb-panel-bar`, `.apb-panel-scroll`)
+  and then one section per panel; later panel agents **append** their section instead of editing earlier ones.
+
+### 2026-09-16 — C1b `inspector` (Design panel, §8) and `tokens` (document styles, §5)
+
+- `features/inspector.js` (plugin `inspector`, order 41) registers the right panel
+  `{ id: 'design', title: 'Design', icon: 'design', order: 10 }`. It owns no service. With a
+  selection it is the node inspector; with an empty selection it renders the document styles UI of
+  the `tokens` module underneath a `widgets.emptyState`.
+- **Writing model.** Every control writes live through `docops.update` with
+  `coalesce: 'inspector:<fieldId>:<ids>#<burst>'`, where `<burst>` increases each time a control
+  reports `{ commit: true }`. One drag / typing burst is therefore one undo entry, and the next
+  burst is a new one even inside the store's 1500 ms coalesce window. Fields whose key cannot
+  cascade (`attrs.*`, `css`, `name`, and `props.*` keys the type does not list in `bpProps`) are
+  written with `{ bp: null }` so they never become a breakpoint override the cascade would drop.
+- **Breakpoint overrides.** Values are read through `schema.effectiveNode(doc, node, view.bp)`.
+  Away from the base breakpoint a field whose `bp[active][top][sub]` exists is marked
+  `is-overridden` and its `fieldRow` reset button deletes exactly that entry (pruning the empty
+  `bp[active]` bag) in a `Reset <field>` transaction. The header also carries
+  "Reset all `<bp>` overrides" whenever the selection has any.
+- **Sizing rules the UI enforces** (matching §5 and `style.boxDecls`): `fill` needs a parent,
+  `hug` needs a stack parent, and a container whose own `layout.mode` is `free` cannot hug height.
+  X/Y are disabled inside stack parents, W/H while that axis is not `fixed`.
+- **Sections**, in order: Position & size, Layout, Content (one section per `def.inspector` group,
+  only when the selection is one type; every `FIELD_TYPE` is supported, `url` refuses anything
+  `sanitize.url` rejects and never writes it, `code` sanitizes on commit), Typography, Fill
+  (None / Solid / Gradient / Image — the editor below the type switch is the only part that
+  re-renders), Border, Effects, Component overrides (type `instance`: the master's text/alt/href
+  fields, each with its own override dot and reset), Attributes, Custom CSS, then every
+  `ui.registerInspectorSection` entry whose `applies(nodes, app)` passes (this is where the motion
+  plugin's section lands). Collapse state per section id lives in `prefs.inspector.sections`.
+- **Refresh.** `store.on('change'|'selection')` schedule one rAF pass that pushes new values into
+  the existing controls; the DOM is rebuilt only when a signature over (bp, component, and per node
+  id/type/container/locked/layout mode+dir/stack-parent/component/`when()` results) changes, never
+  while the focus is inside the control being updated, and focus is restored to the same field id
+  after a rebuild. Escape inside the panel returns focus to `app.canvas.el`.
+- DOM hooks: `.apb-inspector` (carries `apbInspector`), `.apb-inspector-head`,
+  `.apb-inspector-title`, `.apb-inspector-type`, `.apb-inspector-name`, `.apb-inspector-bp`,
+  `.apb-inspector-tools`, `.apb-inspector-body`, `.apb-inspector-section[data-section]`,
+  `.apb-inspector-docstyles`; new controls `.apb-sides` (+ `.apb-sides-grid`, `.apb-sides-link`),
+  `.apb-aligngrid` (+ `.apb-aligngrid-cell`), `.apb-listedit`, `.apb-tableedit`, `.apb-iconpick`,
+  `.apb-assetfield`, `.apb-field-grid`. Each of those exposes the usual `el.apbControl`
+  (`value`, `setMixed`, `setDisabled`, `focus`), so they behave like `widgets` controls.
+  `document.querySelector('.apb-inspector').apbInspector` → `{ refresh(), fieldIds(),
+  field(id) → { el, row, api, nodes }, docStyles, selection }` (for tests and sibling panels).
+- `features/tokens.js` defines the module **`tokens`** — the only writer of `doc.tokens` and
+  `doc.settings.fonts`:
+  `colors(doc) texts(doc) fonts(doc) colorToken(doc,id) textToken(doc,id) fontOptions(doc)
+  makeId(name, taken) usage(doc, id, 'color'|'text') → nodeIds
+  addColor(app,{name,value}) setColor(app,id,{name,value}) renameColor(app,id,nextId)
+  removeColor(app,id,{inline=true}) replaceEverywhere(app,id) → count applyColor(app,ids,ref,key)
+  addTextStyle(app,{name,style}) setTextStyle(app,id,{name,style}) renameTextStyle
+  removeTextStyle applyTextStyle(app,ids,id) textStyleFromNode(doc,node,bp)
+  addFont(app,family,'system'|'google') removeFont(app,family)
+  pageBackground(app) setPageBackground(app,value) currentPageRoot(app)
+  mount(container, app, { targets() → nodeIds }) → { update(), refresh(), el, destroy() }`
+  plus the constants `TOKEN_ID_RE TEXT_STYLE_KEYS COLOR_STYLE_KEYS SYSTEM_STACKS`.
+  Renaming a token id rewrites every `$id` reference (styles, breakpoint overrides and
+  `states.*.style`) in the same transaction; deleting a colour inlines its literal value into the
+  nodes that used it and deleting a text style copies its declarations onto them, so the document
+  never keeps a dangling reference. Nothing is fetched from the network — a Google font is recorded
+  by family name only (`{ family, source, weights: [400, 700] }`) for the exporter to link.
+  DOM hooks: `.apb-docstyles`, `.apb-docstyles-section`, `.apb-token-row[data-token]`
+  (`.apb-token-swatch`, `.apb-token-name`, `.apb-token-value`, `.apb-token-usage`,
+  `.apb-token-id`), `.apb-font-row`, `.apb-font-add`.
+  `mount`'s `targets()` supplies the layers its "Apply" actions write to; the Design panel passes
+  the selection it remembers, because this view is only shown when nothing is selected.
+- Prefs added: `inspector: { sections: { [sectionId]: collapsed } }`.
+- `src/css/panels.css` gained the `inspector` + `doc styles` sections at the end of the file.

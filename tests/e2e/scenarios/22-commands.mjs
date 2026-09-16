@@ -326,16 +326,16 @@ export async function run(page, { assert }) {
   const undone = await page.eval(() => APB.app.store.canRedo());
   assert.ok(undone, 'Mod+Z undoes');
 
-  // F2 rename via prompt
+  // F2 rename — routed to the Layers panel (the prompt is the fallback when it is not loaded)
   await page.eval((id) => { APB.app.store.select([id]); document.querySelector('.apb-viewport').focus(); }, a);
   await page.key('F2');
-  await page.waitFor(() => !!document.querySelector('dialog.apb-dialog--prompt'));
+  await page.waitFor(() => !!document.querySelector('.apb-layer-rename, dialog.apb-dialog--prompt'));
   await page.key('Mod+A');
   await page.type('Renamed layer');
   await page.key('Enter');
-  await page.waitFor(() => !document.querySelector('dialog.apb-dialog--prompt'));
+  await page.waitFor(() => !document.querySelector('.apb-layer-rename, dialog.apb-dialog--prompt'));
   const renamed = await page.eval((id) => APB.app.store.node(id).name, a);
-  assert.equal(renamed, 'Renamed layer', 'F2 renames through the prompt');
+  assert.equal(renamed, 'Renamed layer', 'F2 renames the layer');
 
   /* ------------------------------------------------------------ radial */
   const radial = await page.eval((section) => {

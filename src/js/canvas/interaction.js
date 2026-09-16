@@ -14,17 +14,58 @@
  * - Modifier changes during a gesture re-run `move` with the last pointer position.
  * - Every gesture's document writes share one coalesce key; `ctx.history.finalize` guarantees a
  *   single undo entry per gesture even when the coalesce window lapsed during a slow drag.
+ *
+ * B1b-2 adds on top of that: the drawing tools (frame/section/text/rect/ellipse/line/image) and their
+ * `tool.*` commands, the `reorder` gesture for stack children (insertion indicator + `docops.reparent`),
+ * drop-to-reparent while moving (dwell 400 ms over another container, or leaving the parent), the
+ * Alt-hover distance measurement, the keyboard model (nudge / Enter / Escape / Tab) with its `select.*`
+ * commands, touch long-press → context menu and file drops (images, `.json` projects).
  */
-APB.define('interaction', ['util', 'geometry', 'snapping', 'schema', 'elements'], function (util, geometry, snapping, schema, elements) {
+APB.define('interaction', ['util', 'geometry', 'snapping', 'schema', 'elements', 'commands'],
+  function (util, geometry, snapping, schema, elements, commands) {
   'use strict';
 
   const DRAG_THRESHOLD = 3;
   const PERF_SAMPLES = 240;
+  /** Hovering another container this long while dragging reparents into it. */
+  const DWELL_MS = 400;
+  /** Minimum gap between drop-target hit tests (each one flushes the renderer). */
+  const HIT_TEST_MS = 60;
+  const LONG_PRESS_MS = 500;
+  const NUDGE_IDLE_MS = 600;
+  const MAX_IMAGE_INSERT = 640;
   const toolDefs = new Map();
   const gestureDefs = new Map();
   let keySeq = 0;
+  let commandsRegistered = false;
 
   const own = (o, k) => !!o && Object.prototype.hasOwnProperty.call(o, k);
+
+  /** Drawing tools: the node each one creates and the size a click (no drag) gives it. */
+  const DRAW_TOOLS = {
+    frame: { spec: () => ({ type: 'frame' }), size: { w: 320, h: 240 } },
+    section: { spec: () => ({ type: 'section' }), size: { w: 1440, h: 400 }, root: true },
+    text: { spec: () => ({ type: 'text', props: { text: 'Text' } }), size: { w: 240, h: 48 }, edit: true },
+    rect: { spec: () => ({ type: 'shape', name: 'Rectangle', props: { shape: 'rect' } }), size: { w: 160, h: 160 } },
+    ellipse: { spec: () => ({ type: 'shape', name: 'Ellipse', props: { shape: 'ellipse' } }), size: { w: 160, h: 160 } },
+    line: { spec: () => ({ type: 'shape', name: 'Line', props: { shape: 'line' } }), size: { w: 240, h: 1 }, flat: true },
+    image: { spec: () => ({ type: 'image' }), size: { w: 320, h: 240 }, pick: true }
+  };
+
+  const TOOL_KEYS = [
+    ['select', 'Select', 'select', ['V']],
+    ['hand', 'Hand (pan)', 'hand', ['H']],
+    ['frame', 'Frame', 'frame', ['F']],
+    ['section', 'Section', 'section', ['S']],
+    ['text', 'Text', 'text', ['T']],
+    ['rect', 'Rectangle', 'rect', ['R']],
+    ['ellipse', 'Ellipse', 'ellipse', ['O']],
+    ['line', 'Line', 'line', ['L']],
+    ['image', 'Image', 'image', ['Mod+Shift+K']]
+  ];
+
+  const IMAGE_RE = /\.(png|jpe?g|gif|webp|avif|svg|bmp|ico)$/i;
+  const JSON_RE = /\.(apb\.)?json$/i;
 
   function registerTool(name, def) {
     if (typeof name !== 'string' || !name || !def || typeof def !== 'object') throw new TypeError('interaction.registerTool(name, def) needs a name and a definition');
@@ -78,6 +119,7 @@ APB.define('interaction', ['util', 'geometry', 'snapping', 'schema', 'elements']
     const startRect = canvas.renderer.bounds(origIds);
     if (!startRect) return null;
     const index = snapping.createIndex(ctx.snapTargets(ids));
+    const drop = ctx.dropDetector(ids);
     const applied = { dx: 0, dy: 0 };
     let axisLock = null;
     let changed = duplicated;
@@ -119,7 +161,11 @@ APB.define('interaction', ['util', 'geometry', 'snapping', 'schema', 'elements']
         applied.dy = tdy;
         changed = true;
       }
-      ctx.overlay.set({ guides, spacing, hideHandles: true, hideHover: true });
+      const d = drop.update(pt);
+      ctx.overlay.set({
+        guides, spacing, hideHandles: true, hideHover: true,
+        highlight: d ? d.highlight : null, indicator: d ? d.indicator : null
+      });
     }
 
     return {
@@ -127,15 +173,21 @@ APB.define('interaction', ['util', 'geometry', 'snapping', 'schema', 'elements']
       cursor: 'default',
       get ids() { return ids.slice(); },
       move,
-      end() {
+      end(pt) {
         ctx.overlay.clear();
-        if (!changed) return;
+        const into = drop.update(pt, true);
+        if (!changed && !into) return;
+        // Replay as separate coalesced transactions: `docops` reads `store.doc`, which is the
+        // pre-transaction state inside a transaction, so these steps must each see the committed doc.
         ctx.history.finalize(mark, () => {
-          store.transact(label, () => {
-            const t = duplicated ? docops.duplicate(store, origIds, { offset: 0 }) : origIds;
-            if (applied.dx || applied.dy) docops.move(store, t, applied.dx, applied.dy, { label });
-          });
-        });
+          const replay = ctx.coalesceKey('move');
+          const t = duplicated
+            ? store.transact(label, () => docops.duplicate(store, origIds, { offset: 0 }), { coalesce: replay })
+            : origIds;
+          if (applied.dx || applied.dy) docops.move(store, t, applied.dx, applied.dy, { label, coalesce: replay });
+          if (into) store.transact(label, () => { docops.reparent(store, t, into.parent, into.index); }, { coalesce: replay });
+        }, { force: !!into });
+        if (into) ctx.announce(ctx.idsLabel(ids) + ' moved into ' + ctx.nodeLabel(into.parent));
       },
       cancel() {
         ctx.overlay.clear();
@@ -364,6 +416,118 @@ APB.define('interaction', ['util', 'geometry', 'snapping', 'schema', 'elements']
     };
   });
 
+  /** reorder: drag a stack child — insertion indicator, then one `docops.reparent` on release. */
+  registerGesture('reorder', function (ctx, o) {
+    const { store, app } = ctx;
+    const docops = app.docops;
+    if (!docops) return null;
+    const doc = store.doc;
+    const ids = docops.sortDocOrder(doc, docops.topLevel(doc, o.ids || store.selection))
+      .filter((id) => own(doc.nodes, id) && doc.nodes[id].parent && !docops.isLocked(doc, id));
+    if (!ids.length) return null;
+    const drop = ctx.dropDetector(ids, { reorder: true });
+
+    return {
+      name: 'reorder',
+      cursor: 'grabbing',
+      get ids() { return ids.slice(); },
+      move(pt) {
+        const d = drop.update(pt);
+        ctx.overlay.set({
+          hideHandles: true, hideHover: true,
+          highlight: d ? d.highlight : null, indicator: d ? d.indicator : null
+        });
+      },
+      end(pt) {
+        ctx.overlay.clear();
+        const into = drop.update(pt, true);
+        if (!into || !ctx.reorderChanges(into.parent, ids, into.index)) return;
+        const moved = docops.reparent(app, ids, into.parent, into.index);
+        if (moved && moved.length) ctx.announce(ctx.idsLabel(ids) + ' moved into ' + ctx.nodeLabel(into.parent));
+      },
+      cancel() { ctx.overlay.clear(); }
+    };
+  });
+
+  /** draw: rubber-band a new node inside the container under the pointer (drawing tools). */
+  registerGesture('draw', function (ctx, o) {
+    const start = o.start;
+    const tool = o.tool;
+    const def = DRAW_TOOLS[tool];
+    if (!def) return null;
+    let rect = null;
+    let guides = [];
+
+    function norm(x, y, w, h) {
+      return {
+        x: Math.round(x), y: Math.round(y),
+        w: Math.max(0, Math.round(w)),
+        h: def.flat ? 1 : Math.max(0, Math.round(h))
+      };
+    }
+
+    function compute(pt) {
+      const x1 = start.page.x;
+      const y1 = start.page.y;
+      let px = pt.page.x;
+      let py = def.flat ? y1 : pt.page.y;
+      guides = [];
+      const snap = ctx.snapConfig(pt);
+      if (snap.enabled && o.snap) {
+        const s = snapping.snapPoint({
+          point: { x: px, y: py }, others: o.snap.others, parent: o.snap.parent,
+          grid: snap.grid, gridSize: snap.gridSize, threshold: snap.threshold
+        });
+        if (s) {
+          if (Number.isFinite(s.x)) px = s.x;
+          if (Number.isFinite(s.y) && !def.flat) py = s.y;
+          guides = s.guides || [];
+        }
+      }
+      let w = Math.abs(px - x1);
+      let h = Math.abs(py - y1);
+      if (pt.shift && !def.flat) { const m = Math.max(w, h); w = m; h = m; }
+      if (pt.alt) return norm(x1 - w, y1 - h, w * 2, h * 2);
+      return norm(px < x1 ? x1 - w : x1, py < y1 ? y1 - h : y1, w, h);
+    }
+
+    return {
+      name: 'draw',
+      cursor: tool === 'text' ? 'text' : 'crosshair',
+      move(pt) {
+        rect = compute(pt);
+        ctx.overlay.set({ marquee: rect, guides, hideSelection: true, hideHover: true, hideHandles: true });
+      },
+      end(pt) {
+        ctx.overlay.clear();
+        const r = rect && (rect.w >= 2 || rect.h >= 2) ? rect : null;
+        ctx.createNode(tool, r, o.target, pt);
+      },
+      cancel() { ctx.overlay.clear(); }
+    };
+  });
+
+  /* ============================================================ draw tools */
+
+  for (const name of Object.keys(DRAW_TOOLS)) {
+    registerTool(name, {
+      cursor: name === 'text' ? 'text' : 'crosshair',
+      down(ctx, pt) {
+        const target = ctx.drawTarget(name, pt);
+        if (!target) return null;
+        return {
+          cursor: name === 'text' ? 'text' : 'crosshair',
+          drag: () => ctx.gesture('draw', { tool: name, start: pt, target, snap: ctx.drawSnap(target.parent) }),
+          click: (p) => ctx.createNode(name, null, target, p)
+        };
+      },
+      hover(ctx, pt) {
+        const t = ctx.drawTarget(name, pt);
+        return { hover: t && t.parent !== ctx.canvas.renderer.rootId ? t.parent : null, cursor: name === 'text' ? 'text' : 'crosshair' };
+      }
+    });
+  }
+
   /* ============================================================ select tool */
 
   registerTool('select', {
@@ -463,6 +627,82 @@ APB.define('interaction', ['util', 'geometry', 'snapping', 'schema', 'elements']
     }
   });
 
+  /* ============================================================== commands */
+
+  const canvasOf = (a) => (a && a.canvas && a.canvas.el ? a.canvas : null);
+  const keyboardOf = (a) => { const c = canvasOf(a); return c && c.interaction ? c.interaction.keyboard : null; };
+
+  /** The keyboard model only applies while the canvas viewport itself has focus. */
+  function canvasFocused(a) {
+    const c = canvasOf(a);
+    if (!c || (a.store && a.store.view.editingText)) return false;
+    const d = c.el.ownerDocument;
+    return !!d && d.activeElement === c.el;
+  }
+
+  function run(name) {
+    return (a) => {
+      const k = keyboardOf(a);
+      return k && typeof k[name] === 'function' ? k[name]() : false;
+    };
+  }
+
+  /** `tool.*` and `select.*`; canvas.js owns the `view.*` zoom commands. */
+  function registerCommands() {
+    if (commandsRegistered) return;
+    commandsRegistered = true;
+    const defs = [];
+    for (const [tool, title, icon, keys] of TOOL_KEYS) {
+      defs.push({
+        id: 'tool.' + tool,
+        title: title + (tool === 'hand' ? '' : ' tool'),
+        category: 'Tools',
+        icon,
+        keys,
+        when: (a) => !!canvasOf(a) && !a.store.view.editingText,
+        checked: (a) => !!canvasOf(a) && (a.store.view.tool || 'select') === tool,
+        run: (a) => {
+          const c = canvasOf(a);
+          if (!c) return;
+          c.setTool(tool);
+          if (tool === 'image' && c.interaction && typeof c.interaction.openImagePicker === 'function') c.interaction.openImagePicker({});
+        }
+      });
+    }
+    defs.push(
+      {
+        id: 'view.toggleSnap', title: 'Toggle snapping', category: 'View', icon: 'magnet',
+        checked: (a) => !!(a && (a.store.prefs.snap || {}).objects !== false),
+        run: (a) => {
+          const snap = Object.assign({}, a.store.prefs.snap);
+          snap.objects = snap.objects === false;
+          a.store.setPrefs({ snap });
+        }
+      },
+      { id: 'select.all', title: 'Select all in container', icon: 'select-box', keys: ['Mod+A'], when: canvasFocused, run: run('all') },
+      {
+        id: 'select.none', title: 'Deselect', icon: 'close', keys: ['Escape'],
+        when: (a) => canvasFocused(a) && (a.store.selection.length > 0 || !!a.store.view.context), run: run('none')
+      },
+      {
+        id: 'select.parent', title: 'Select parent', icon: 'arrow-up', keys: ['Shift+Enter'],
+        when: (a) => canvasFocused(a) && a.store.selection.length > 0, run: run('parent')
+      },
+      { id: 'select.child', title: 'Select first child', icon: 'arrow-down', keys: ['Enter'], when: canvasFocused, run: run('enter') },
+      {
+        id: 'select.next', title: 'Select next layer', icon: 'arrow-right', keys: ['Tab'],
+        when: canvasFocused, run: (a) => { const k = keyboardOf(a); return k ? k.sibling(1) : false; }
+      },
+      {
+        id: 'select.prev', title: 'Select previous layer', icon: 'arrow-left', keys: ['Shift+Tab'],
+        when: canvasFocused, run: (a) => { const k = keyboardOf(a); return k ? k.sibling(-1) : false; }
+      }
+    );
+    for (const d of defs) {
+      if (!commands.get(d.id)) commands.register(Object.assign({ category: 'Select' }, d));
+    }
+  }
+
   /* ================================================================ create */
 
   function create(opts) {
@@ -485,6 +725,9 @@ APB.define('interaction', ['util', 'geometry', 'snapping', 'schema', 'elements']
     let hoverFrame = 0;
     let hoverPt = null;
     let cursor = '';
+    let repeatTimer = 0;
+    let longPressTimer = 0;
+    let nudge = null;
     const perf = { count: 0, total: 0, max: 0, samples: [] };
 
     const noopOverlay = {
@@ -530,10 +773,15 @@ APB.define('interaction', ['util', 'geometry', 'snapping', 'schema', 'elements']
           h = store.history();
         }
       },
-      /** Ensure the gesture produced one undo entry: if the coalesce window lapsed, replay it once. */
-      finalize(mark, reapply) {
+      /**
+       * Ensure the gesture produced one undo entry: if the coalesce window lapsed, replay it once.
+       * `opts.force` replays even from a single entry (used when the final state differs from the
+       * live preview, e.g. a drag that also reparents).
+       */
+      finalize(mark, reapply, opts) {
         const h = store.history();
-        if (h.index - mark.index <= 1 || typeof reapply !== 'function') return;
+        if (typeof reapply !== 'function') return;
+        if (h.index - mark.index <= 1 && !(opts && opts.force)) return;
         history.cancel(mark);
         reapply();
       }
@@ -718,6 +966,483 @@ APB.define('interaction', ['util', 'geometry', 'snapping', 'schema', 'elements']
       return String(Object.is(r, -0) ? 0 : r);
     }
 
+    /* ------------------------------------------------------- layer naming */
+
+    function nodeLabel(id) {
+      const n = store.node(id);
+      if (!n) return 'layer';
+      if (n.name) return n.name;
+      const def = elements.get(n.type);
+      return (def && def.label) || n.type;
+    }
+
+    function typeLabel(id) {
+      const n = store.node(id);
+      const def = n ? elements.get(n.type) : null;
+      return (def && def.label) || (n ? n.type : '');
+    }
+
+    function idsLabel(ids) {
+      return ids.length === 1 ? nodeLabel(ids[0]) : util.plural(ids.length, 'layer');
+    }
+
+    function announceSelected(id) {
+      if (!store.node(id)) return;
+      announce('Selected ' + nodeLabel(id) + ', ' + typeLabel(id));
+    }
+
+    /* --------------------------------------------------- containers / flow */
+
+    function isStack(id) {
+      const e = id ? schema.effectiveNode(store.doc, id, store.view.bp) : null;
+      return !!(e && e.layout && e.layout.mode === 'stack');
+    }
+
+    /** Where a point falls in a stack parent's flow: `{ index, kids, row }` (kids exclude `skip`). */
+    function flowInfo(parentId, pt, skip) {
+      const doc = store.doc;
+      const eff = schema.effectiveNode(doc, parentId, store.view.bp);
+      const L = eff && eff.layout;
+      const row = !!(L && L.dir === 'row');
+      const kids = (((own(doc.nodes, parentId) && doc.nodes[parentId].children) || [])).filter((c) => !skip || !skip.has(c));
+      const at = row ? pt.page.x : pt.page.y;
+      let index = kids.length;
+      for (let i = 0; i < kids.length; i++) {
+        const r = canvas.renderer.bounds([kids[i]]);
+        if (!r) continue;
+        if (at < (row ? r.x + r.w / 2 : r.y + r.h / 2)) { index = i; break; }
+      }
+      return { index, kids, row };
+    }
+
+    /** Page-space line where an insertion at `info.index` would land. */
+    function indicatorFor(parentId, info) {
+      const pr = canvas.renderer.bounds([parentId]);
+      if (!pr) return null;
+      const { index, kids, row } = info;
+      let pos = null;
+      if (!kids.length) pos = row ? pr.x + 1 : pr.y + 1;
+      else {
+        const ref = index <= 0 ? canvas.renderer.bounds([kids[0]]) : canvas.renderer.bounds([kids[Math.min(index, kids.length) - 1]]);
+        if (ref) pos = index <= 0 ? (row ? ref.x : ref.y) : (row ? ref.x + ref.w : ref.y + ref.h);
+      }
+      if (pos === null) return null;
+      return row
+        ? { x1: pos, y1: pr.y, x2: pos, y2: pr.y + pr.h }
+        : { x1: pr.x, y1: pos, x2: pr.x + pr.w, y2: pos };
+    }
+
+    /** Would `docops.reparent(parent, ids, index)` change anything? */
+    function reorderChanges(parentId, ids, index) {
+      const doc = store.doc;
+      const n = own(doc.nodes, parentId) ? doc.nodes[parentId] : null;
+      if (!n || !Array.isArray(n.children)) return false;
+      if (ids.some((id) => !own(doc.nodes, id) || doc.nodes[id].parent !== parentId)) return true;
+      const set = new Set(ids);
+      const base = n.children.filter((c) => !set.has(c));
+      const at = index === undefined || index === null ? base.length : util.clamp(Math.round(index), 0, base.length);
+      return !util.deepEqual(base.slice(0, at).concat(ids, base.slice(at)), n.children);
+    }
+
+    /**
+     * Drop target of a drag: the deepest acceptable container under the pointer. Another container
+     * needs a 400 ms dwell (immediate once the pointer left the current parent); once accepted it
+     * stays accepted while the pointer is over it. `opts.reorder` also reports the flow index of the
+     * node's own stack parent. Throttled to one hit test per frame (hit testing flushes the renderer).
+     */
+    function dropDetector(ids, dOpts) {
+      const opts = dOpts || {};
+      const doc0 = store.doc;
+      const dragged = new Set(ids);
+      const types = ids.map((id) => (own(doc0.nodes, id) ? doc0.nodes[id].type : null)).filter(Boolean);
+      const home = opts.parent !== undefined ? opts.parent : (own(doc0.nodes, ids[0]) ? doc0.nodes[ids[0]].parent : null);
+      let pendingId = null;
+      let pendingAt = 0;
+      let lockedId = null;
+      let out = null;
+      let lastRun = 0;
+      let lastPt = null;
+      let stillSince = 0;
+      // Measured before the drag writes anything: re-measuring would flush the renderer every frame.
+      const homeRect = home ? canvas.renderer.bounds([home]) : null;
+
+      function insideDragged(id) {
+        const doc = store.doc;
+        let cur = id;
+        let guard = 64;
+        while (cur && guard-- > 0) {
+          if (dragged.has(cur)) return true;
+          cur = own(doc.nodes, cur) ? doc.nodes[cur].parent : null;
+        }
+        return false;
+      }
+
+      function accepts(id) {
+        const doc = store.doc;
+        const n = own(doc.nodes, id) ? doc.nodes[id] : null;
+        if (!n || !Array.isArray(n.children)) return false;
+        if (app.docops && app.docops.isLocked(doc, id)) return false;
+        if (insideDragged(id)) return false;
+        return types.every((t) => elements.canContain(n.type, t));
+      }
+
+      function targetFor(parentId, pt, highlight) {
+        if (!isStack(parentId)) return { parent: parentId, index: undefined, indicator: null, highlight };
+        const info = flowInfo(parentId, pt, dragged);
+        return { parent: parentId, index: info.index, indicator: indicatorFor(parentId, info), highlight };
+      }
+
+      /** While no other container is accepted yet, a reorder drag keeps showing its own flow position. */
+      function homeFallback(pt) {
+        return opts.reorder && isStack(home) ? targetFor(home, pt, null) : null;
+      }
+
+      function update(pt, force) {
+        const now = Date.now();
+        if (!lastPt || Math.hypot(pt.clientX - lastPt.x, pt.clientY - lastPt.y) >= 3) {
+          lastPt = { x: pt.clientX, y: pt.clientY };
+          stillSince = now;
+        }
+        // Hit testing flushes the renderer, so avoid it while the drag is still inside its own
+        // parent and moving: dropping there needs a 400 ms dwell anyway. Leaving the parent (or
+        // releasing, which passes `force`) drops immediately, so those always test.
+        if (!force) {
+          if (now - lastRun < HIT_TEST_MS) {
+            if (pendingId && !lockedId) repeat(HIT_TEST_MS + 8);
+            return out;
+          }
+          const inside = !!homeRect && geometry.pointInRect(pt.page, homeRect);
+          if (inside && !lockedId && now - stillSince < DWELL_MS) {
+            repeat(DWELL_MS - (now - stillSince) + 20);
+            out = homeFallback(pt);
+            return out;
+          }
+        }
+        lastRun = now;
+        const hit = canvas.renderer.nodeAt(pt.clientX, pt.clientY, { deep: true, filter: accepts });
+        if (!hit) { pendingId = null; out = homeFallback(pt); return out; }
+        if (hit === home) {
+          pendingId = null;
+          lockedId = null;
+          out = homeFallback(pt);
+          return out;
+        }
+        if (lockedId !== hit) {
+          const outside = !homeRect || !geometry.pointInRect(pt.page, homeRect);
+          if (pendingId !== hit) { pendingId = hit; pendingAt = Math.min(now, stillSince || now); }
+          if (!outside && now - pendingAt < DWELL_MS) {
+            repeat(Math.max(HIT_TEST_MS + 8, DWELL_MS - (now - pendingAt) + 20));
+            out = homeFallback(pt);
+            return out;
+          }
+          lockedId = hit;
+        }
+        out = targetFor(hit, pt, hit);
+        return out;
+      }
+
+      return { update, accepts, result: () => out };
+    }
+
+    /* -------------------------------------------------------- drawing tools */
+
+    /** Page rect → the parent's local coordinates (parent border box and rotation aware). */
+    function localRect(parentId, r) {
+      const pr = canvas.renderer.worldRect(parentId);
+      if (!pr) return { x: Math.round(r.x), y: Math.round(r.y), w: r.w, h: r.h };
+      const pel = canvas.renderer.el(parentId);
+      const bl = pel && Number.isFinite(pel.clientLeft) ? pel.clientLeft : 0;
+      const bt = pel && Number.isFinite(pel.clientTop) ? pel.clientTop : 0;
+      let c = { x: r.x + r.w / 2, y: r.y + r.h / 2 };
+      if (pr.rotation) c = geometry.rotatePoint(c, { x: pr.x + pr.w / 2, y: pr.y + pr.h / 2 }, -pr.rotation);
+      return { x: Math.round(c.x - r.w / 2 - pr.x - bl), y: Math.round(c.y - r.h / 2 - pr.y - bt), w: r.w, h: r.h };
+    }
+
+    /** The container a drawing tool would create into: `{ parent, index? }`. */
+    function drawTarget(tool, pt) {
+      const def = DRAW_TOOLS[tool];
+      if (!def) return null;
+      const doc = store.doc;
+      const renderer = canvas.renderer;
+      const rootId = renderer.rootId;
+      const type = def.spec().type || 'frame';
+      if (def.root) {
+        const root = own(doc.nodes, rootId) ? doc.nodes[rootId] : null;
+        if (!root) return null;
+        return { parent: rootId, index: flowInfo(rootId, pt, null).index };
+      }
+      const accepts = (id) => {
+        const n = own(doc.nodes, id) ? doc.nodes[id] : null;
+        if (!n || !Array.isArray(n.children)) return false;
+        if (app.docops && app.docops.isLocked(doc, id)) return false;
+        return elements.canContain(n.type, type);
+      };
+      let parent = renderer.nodeAt(pt.clientX, pt.clientY, { deep: true, filter: accepts });
+      if (!parent) {
+        const c = store.view.context;
+        if (c && own(doc.nodes, c) && accepts(c)) parent = c;
+        else if (rootId && accepts(rootId)) parent = rootId;
+      }
+      if (!parent) return null;
+      return isStack(parent) ? { parent, index: flowInfo(parent, pt, null).index } : { parent };
+    }
+
+    /** Snap candidates for a drawing tool: the target container and its children. */
+    function drawSnap(parentId) {
+      const others = [];
+      for (const cid of ((own(store.doc.nodes, parentId) && store.doc.nodes[parentId].children) || [])) {
+        const r = canvas.renderer.bounds([cid]);
+        if (r) others.push(r);
+      }
+      return { others, parent: canvas.renderer.bounds([parentId]) };
+    }
+
+    /** Create the node a drawing tool drew (or clicked). Returns the new id. */
+    function createNode(tool, rect, target, pt) {
+      const def = DRAW_TOOLS[tool];
+      const d = app.docops;
+      if (!def || !d) return null;
+      const t = target && target.parent ? target : drawTarget(tool, pt);
+      if (!t) return null;
+      let r = rect;
+      if (!r) {
+        const p = pt && pt.page ? pt.page : canvas.viewport.screenToPage(0, 0);
+        r = { x: p.x - def.size.w / 2, y: p.y - def.size.h / 2, w: def.size.w, h: def.size.h };
+      }
+      const spec = def.spec();
+      const local = localRect(t.parent, r);
+      spec.w = Math.max(1, Math.round(local.w || def.size.w));
+      spec.h = def.flat ? 1 : Math.max(1, Math.round(local.h || def.size.h));
+      if (!def.root && !isStack(t.parent)) {
+        spec.x = local.x;
+        spec.y = local.y;
+      }
+      if (def.root) spec.h = Math.max(40, spec.h);
+      const opts = { parent: t.parent, select: true };
+      if (Number.isFinite(t.index)) opts.index = t.index;
+      let ids = [];
+      try {
+        ids = d.insert(app, [spec], opts);
+      } catch (err) {
+        console.error('[APB] canvas insert failed:', err);
+        return null;
+      }
+      const id = ids && ids[0];
+      if (!id) return null;
+      if (!(pt && pt.shift)) canvas.setTool('select');
+      announce(typeLabel(id) + ' added to ' + nodeLabel(t.parent));
+      if (def.pick) openImagePicker({ replace: id });
+      else if (def.edit) canvas.startTextEdit(id);
+      return id;
+    }
+
+    /* --------------------------------------------------------------- images */
+
+    let fileInput = null;
+    let fileInputJob = null;
+
+    function ensureFileInput() {
+      if (fileInput && fileInput.isConnected) return fileInput;
+      fileInput = ownerDoc.createElement('input');
+      fileInput.type = 'file';
+      fileInput.accept = 'image/*';
+      fileInput.multiple = true;
+      fileInput.tabIndex = -1;
+      fileInput.setAttribute('aria-hidden', 'true');
+      fileInput.className = 'apb-canvas-file-input';
+      fileInput.addEventListener('change', () => {
+        const files = Array.from(fileInput.files || []);
+        const job = fileInputJob;
+        fileInputJob = null;
+        fileInput.value = '';
+        if (files.length) placeImages(files, job || {});
+      });
+      el.appendChild(fileInput);
+      return fileInput;
+    }
+
+    /** Open the hidden file input; `job.replace` fills an existing image node instead of inserting. */
+    function openImagePicker(job) {
+      const input = ensureFileInput();
+      fileInputJob = job || {};
+      try { input.click(); } catch (_) { /* blocked */ }
+    }
+
+    function readDataURL(file) {
+      return new Promise((resolve) => {
+        try {
+          const fr = new win.FileReader();
+          fr.onload = () => resolve(typeof fr.result === 'string' ? fr.result : '');
+          fr.onerror = () => resolve('');
+          fr.readAsDataURL(file);
+        } catch (_) { resolve(''); }
+      });
+    }
+
+    function measureImage(src) {
+      return new Promise((resolve) => {
+        if (!src || typeof win.Image !== 'function') { resolve(null); return; }
+        const img = new win.Image();
+        img.onload = () => resolve({ w: img.naturalWidth || 0, h: img.naturalHeight || 0 });
+        img.onerror = () => resolve(null);
+        img.src = src;
+      });
+    }
+
+    /** services.assets.add when a plugin provides it, else a data URL through FileReader. */
+    async function assetProps(file) {
+      const svc = app.services && app.services.assets;
+      if (svc && typeof svc.add === 'function') {
+        try {
+          const res = await svc.add(file);
+          if (typeof res === 'string' && res) return { asset: res, src: '' };
+          if (res && typeof res === 'object') return { asset: res.id || '', src: res.src || '' };
+        } catch (err) {
+          console.error('[APB] assets.add failed:', err);
+        }
+      }
+      return { asset: '', src: await readDataURL(file) };
+    }
+
+    function fitSize(nat) {
+      if (!nat || !nat.w || !nat.h) return { w: DRAW_TOOLS.image.size.w, h: DRAW_TOOLS.image.size.h };
+      const s = Math.min(1, MAX_IMAGE_INSERT / Math.max(nat.w, nat.h));
+      return { w: Math.max(1, Math.round(nat.w * s)), h: Math.max(1, Math.round(nat.h * s)) };
+    }
+
+    /**
+     * Insert image nodes for `files`. `job.replace` = fill that node instead; `job.point` = page
+     * position of the first image (later ones cascade by 16 px); otherwise the viewport centre.
+     */
+    async function placeImages(files, job) {
+      const d = app.docops;
+      if (!d) return [];
+      const list = files.filter((f) => f && (/^image\//.test(f.type || '') || IMAGE_RE.test(f.name || '')));
+      if (!list.length) return [];
+      const specs = [];
+      for (let i = 0; i < list.length; i++) {
+        const file = list[i];
+        const props = await assetProps(file);
+        if (!props.src && !props.asset) continue;
+        const size = fitSize(await measureImage(props.src));
+        if (destroyed) return [];
+        if (job.replace && own(store.doc.nodes, job.replace)) {
+          const patch = { 'props.src': props.src, 'props.asset': props.asset, name: file.name || 'Image' };
+          d.update(app, [job.replace], patch, { label: 'Set image' });
+          return [job.replace];
+        }
+        specs.push({ spec: Object.assign(DRAW_TOOLS.image.spec(), { name: file.name || 'Image', props: { src: props.src, asset: props.asset, alt: '', decorative: false, loading: 'lazy', fetchpriority: '' } }), size, index: i });
+      }
+      if (!specs.length) return [];
+      if (!job.point) {
+        const ids = canvas.insertAtViewportCenter(specs.map((s) => Object.assign(s.spec, s.size)));
+        if (ids.length) announce(util.plural(ids.length, 'image') + ' inserted');
+        return ids;
+      }
+      const t = drawTarget('image', { clientX: job.clientX, clientY: job.clientY, page: job.point }) || { parent: canvas.renderer.rootId };
+      const out = specs.map((s) => {
+        const off = s.index * 16;
+        const r = { x: job.point.x - s.size.w / 2 + off, y: job.point.y - s.size.h / 2 + off, w: s.size.w, h: s.size.h };
+        const local = localRect(t.parent, r);
+        return Object.assign(s.spec, { w: s.size.w, h: s.size.h }, isStack(t.parent) ? {} : { x: local.x, y: local.y });
+      });
+      const opts = { parent: t.parent, select: true, label: out.length === 1 ? 'Insert Image' : 'Insert ' + util.plural(out.length, 'image') };
+      if (Number.isFinite(t.index)) opts.index = t.index;
+      const ids = d.insert(app, out, opts);
+      if (ids.length) announce(util.plural(ids.length, 'image') + ' inserted');
+      return ids;
+    }
+
+    /* ----------------------------------------------------------- file drops */
+
+    function hasFiles(e) {
+      const dt = e.dataTransfer;
+      if (!dt) return false;
+      const types = dt.types ? Array.from(dt.types) : [];
+      return types.indexOf('Files') !== -1;
+    }
+
+    function toast(message, kind) {
+      const ui = app.ui;
+      if (ui && typeof ui.toast === 'function') { try { ui.toast(message, kind ? { kind } : undefined); } catch (_) { /* optional */ } }
+      else announce(message);
+    }
+
+    function onDragOver(e) {
+      if (destroyed || !hasFiles(e)) return;
+      e.preventDefault();
+      try { e.dataTransfer.dropEffect = 'copy'; } catch (_) { /* read-only in some browsers */ }
+      const t = drawTarget('image', { clientX: e.clientX, clientY: e.clientY, page: canvas.viewport.screenToPage(e.clientX, e.clientY) });
+      ctx.overlay.set({ highlight: t && t.parent !== canvas.renderer.rootId ? t.parent : null });
+    }
+
+    function onDragLeave(e) {
+      if (e.relatedTarget && el.contains(e.relatedTarget)) return;
+      ctx.overlay.set({ highlight: null });
+    }
+
+    function onDrop(e) {
+      if (destroyed || !hasFiles(e)) return;
+      e.preventDefault();
+      ctx.overlay.set({ highlight: null });
+      const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []);
+      if (!files.length) return;
+      const images = files.filter((f) => /^image\//.test(f.type || '') || IMAGE_RE.test(f.name || ''));
+      const projects = files.filter((f) => images.indexOf(f) === -1 && (JSON_RE.test(f.name || '') || f.type === 'application/json'));
+      if (images.length) {
+        placeImages(images, { point: canvas.viewport.screenToPage(e.clientX, e.clientY), clientX: e.clientX, clientY: e.clientY })
+          .catch((err) => console.error('[APB] image drop failed:', err));
+      }
+      for (const file of projects) {
+        const imp = app.services && app.services.importers;
+        if (imp && typeof imp.fromFile === 'function') {
+          Promise.resolve()
+            .then(() => imp.fromFile(file))
+            .catch((err) => { console.error('[APB] import failed:', err); toast('Could not import ' + (file.name || 'that file') + '.', 'error'); });
+        } else {
+          toast('Opening project files is not available yet.', 'warn');
+        }
+      }
+      if (!images.length && !projects.length) toast('Drop images or an .apb.json project file.', 'warn');
+    }
+
+    /* -------------------------------------------------------- measurements */
+
+    /** Alt-hover: distances between the selection bounds and the hovered node. */
+    function measureBetween(a, b) {
+      const out = [];
+      const midY = util.clamp((a.y + a.h / 2 + b.y + b.h / 2) / 2, Math.max(a.y, b.y), Math.min(a.y + a.h, b.y + b.h));
+      const midX = util.clamp((a.x + a.w / 2 + b.x + b.w / 2) / 2, Math.max(a.x, b.x), Math.min(a.x + a.w, b.x + b.w));
+      const yPos = Number.isFinite(midY) ? midY : a.y + a.h / 2;
+      const xPos = Number.isFinite(midX) ? midX : a.x + a.w / 2;
+      if (b.x >= a.x + a.w) out.push({ axis: 'x', from: a.x + a.w, to: b.x, pos: yPos });
+      else if (b.x + b.w <= a.x) out.push({ axis: 'x', from: b.x + b.w, to: a.x, pos: yPos });
+      if (b.y >= a.y + a.h) out.push({ axis: 'y', from: a.y + a.h, to: b.y, pos: xPos });
+      else if (b.y + b.h <= a.y) out.push({ axis: 'y', from: b.y + b.h, to: a.y, pos: xPos });
+      if (!out.length) {
+        out.push({ axis: 'x', from: a.x, to: b.x, pos: yPos });
+        out.push({ axis: 'y', from: a.y, to: b.y, pos: xPos });
+      }
+      return out.filter((m) => Math.abs(m.to - m.from) >= 1);
+    }
+
+    let measureOn = false;
+
+    function clearMeasure() {
+      if (!measureOn) return;
+      measureOn = false;
+      ctx.overlay.set({ measure: null });
+    }
+
+    function updateMeasure(pt, hoverId) {
+      if (!pt || !pt.alt || !hoverId || !store.selection.length || store.selection.indexOf(hoverId) !== -1) { clearMeasure(); return; }
+      const a = canvas.selectionBounds();
+      const b = canvas.renderer.bounds([hoverId]);
+      if (!a || !b) { clearMeasure(); return; }
+      measureOn = true;
+      ctx.overlay.set({ measure: measureBetween(a, b) });
+    }
+
     const ctx = {
       app, store, canvas,
       get overlay() { return canvas.overlay && typeof canvas.overlay.hitTest === 'function' ? canvas.overlay : noopOverlay; },
@@ -725,6 +1450,8 @@ APB.define('interaction', ['util', 'geometry', 'snapping', 'schema', 'elements']
       DRAG_THRESHOLD,
       modKey, point, history, snapConfig, snapTargets, movableIds, boxItem, localBox, applyBoxes, unionOf,
       keepsAspect, isMarqueeContainer, selectTarget, setCursor, setHover, announce, gesture, hasGesture, stackDrag, fmt,
+      dropDetector, reorderChanges, isStack, flowInfo, indicatorFor, localRect, drawTarget, drawSnap, createNode,
+      nodeLabel, typeLabel, idsLabel, announceSelected, openImagePicker, repeat,
       coalesceKey: (name) => 'gesture:' + name + ':' + (++keySeq) + ':' + Date.now(),
       cancel: () => cancelActive(),
       tool: (name) => localTools.get(name) || toolDefs.get(name) || null
@@ -774,9 +1501,39 @@ APB.define('interaction', ['util', 'geometry', 'snapping', 'schema', 'elements']
       try { el.setPointerCapture(e.pointerId); } catch (_) { /* synthetic pointer */ }
       win.addEventListener('keydown', onKey, true);
       win.addEventListener('keyup', onKey, true);
+      if (pt.pointerType !== 'mouse') {
+        clearLongPress();
+        longPressTimer = win.setTimeout(() => {
+          longPressTimer = 0;
+          if (destroyed || !active || active.gesture) return;
+          const last = active.last;
+          cancelActive();
+          openContextMenu(last);
+        }, LONG_PRESS_MS);
+      }
+    }
+
+    /** Re-run the active gesture with its last pointer position (used by dwell timers). */
+    function repeat(ms) {
+      if (destroyed || !active || !active.gesture || repeatTimer) return;
+      repeatTimer = win.setTimeout(() => {
+        repeatTimer = 0;
+        if (!destroyed && active && active.gesture && active.last) runMove(active.last);
+      }, Math.max(16, ms || DWELL_MS));
+    }
+
+    function clearRepeat() {
+      if (repeatTimer) win.clearTimeout(repeatTimer);
+      repeatTimer = 0;
+    }
+
+    function clearLongPress() {
+      if (longPressTimer) win.clearTimeout(longPressTimer);
+      longPressTimer = 0;
     }
 
     function runMove(pt) {
+      clearRepeat();
       const t0 = perfNow();
       try {
         active.gesture.move(pt);
@@ -801,6 +1558,7 @@ APB.define('interaction', ['util', 'geometry', 'snapping', 'schema', 'elements']
         if (active.dead) return;
         if (!active.gesture) {
           const dist = Math.hypot(pt.clientX - active.start.clientX, pt.clientY - active.start.clientY);
+          if (dist >= DRAG_THRESHOLD) clearLongPress();
           if (dist < DRAG_THRESHOLD) return;
           let g = null;
           try {
@@ -851,6 +1609,8 @@ APB.define('interaction', ['util', 'geometry', 'snapping', 'schema', 'elements']
     function finish() {
       const a = active;
       active = null;
+      clearRepeat();
+      clearLongPress();
       win.removeEventListener('keydown', onKey, true);
       win.removeEventListener('keyup', onKey, true);
       setCursor('');
@@ -888,11 +1648,8 @@ APB.define('interaction', ['util', 'geometry', 'snapping', 'schema', 'elements']
       }
     }
 
-    function onContextMenu(e) {
-      if (destroyed || inTextEditor(e.target)) return;
-      e.preventDefault();
-      cancelActive();
-      const pt = point(e);
+    function openContextMenu(pt) {
+      if (!pt) return;
       const tool = currentTool();
       if (tool && typeof tool.contextmenu === 'function') {
         try { if (tool.contextmenu(ctx, pt)) return; } catch (err) { console.error('[APB] canvas context menu failed:', err); }
@@ -901,7 +1658,204 @@ APB.define('interaction', ['util', 'geometry', 'snapping', 'schema', 'elements']
       let id = renderer.nodeAt(pt.clientX, pt.clientY, { deep: pt.mod });
       if (id === renderer.rootId) id = null;
       if (id && !store.selection.includes(id)) ctx.selectTarget(id);
-      app.emit('canvas:contextmenu', { clientX: pt.clientX, clientY: pt.clientY, nodeId: id });
+      app.emit('canvas:contextmenu', { clientX: pt.clientX, clientY: pt.clientY, nodeId: id, pointerType: pt.pointerType });
+    }
+
+    function onContextMenu(e) {
+      if (destroyed || inTextEditor(e.target)) return;
+      e.preventDefault();
+      cancelActive();
+      openContextMenu(point(e));
+    }
+
+    /* --------------------------------------------------------- keyboard */
+
+    function coalesceNudge() {
+      const now = Date.now();
+      if (!nudge || now - nudge.at > NUDGE_IDLE_MS) nudge = { key: 'nudge:' + (++keySeq) + ':' + now, at: now };
+      nudge.at = now;
+      return nudge.key;
+    }
+
+    function isStackChild(id) {
+      const n = store.node(id);
+      return !!(n && n.parent && isStack(n.parent));
+    }
+
+    /** Arrow keys inside a stack parent move the node up/down the flow instead of nudging. */
+    function reorderByKey(ids, dx, dy) {
+      const d = app.docops;
+      const doc = store.doc;
+      const parent = doc.nodes[ids[0]].parent;
+      const list = d.sortDocOrder(doc, ids).filter((id) => doc.nodes[id].parent === parent);
+      if (!list.length) return false;
+      const kids = doc.nodes[parent].children || [];
+      const set = new Set(list);
+      const base = kids.filter((c) => !set.has(c));
+      const before = kids.findIndex((c) => set.has(c));
+      const baseIndex = kids.slice(0, Math.max(0, before)).filter((c) => !set.has(c)).length;
+      const at = util.clamp(baseIndex + (dx < 0 || dy < 0 ? -1 : 1), 0, base.length);
+      if (at === baseIndex) return false;
+      d.reparent(app, list, parent, at);
+      announce(idsLabel(list) + ' moved to position ' + (at + 1));
+      return true;
+    }
+
+    function nudgeSelection(dx, dy) {
+      const d = app.docops;
+      if (!d) return false;
+      const doc = store.doc;
+      const top = d.topLevel(doc, store.selection).filter((id) => !d.isLocked(doc, id));
+      if (!top.length) return false;
+      if (top.every(isStackChild)) return reorderByKey(top, dx, dy);
+      const free = top.filter((id) => !isStackChild(id));
+      if (!free.length) return false;
+      const moved = d.move(store, free, dx, dy, { coalesce: coalesceNudge(), label: 'Move ' + (free.length === 1 ? 'layer' : util.plural(free.length, 'layer')) });
+      return moved !== false;
+    }
+
+    function firstChildOf(id) {
+      const n = store.node(id);
+      const kids = (n && n.children) || [];
+      for (let i = kids.length - 1; i >= 0; i--) {
+        if (!store.doc.nodes[kids[i]].hidden) return kids[i];
+      }
+      return kids.length ? kids[kids.length - 1] : null;
+    }
+
+    /** Enter: step into the selected container, or start editing an editable node. */
+    function enterSelection() {
+      const id = store.selection[0];
+      if (!id) {
+        const scope = store.view.context && own(store.doc.nodes, store.view.context) ? store.view.context : canvas.renderer.rootId;
+        const child = firstChildOf(scope);
+        if (!child) return false;
+        store.select([child]);
+        announceSelected(child);
+        return true;
+      }
+      const child = firstChildOf(id);
+      if (child) {
+        if (isMarqueeContainer(id) || store.node(id).type === 'group' || store.node(id).type === 'instance') store.setView({ context: id });
+        store.select([child]);
+        announceSelected(child);
+        return true;
+      }
+      const n = store.node(id);
+      const def = n ? elements.get(n.type) : null;
+      if (def && def.textEdit && !(app.docops && app.docops.isLocked(store.doc, id))) return canvas.startTextEdit(id);
+      return false;
+    }
+
+    /** Shift+Enter / Escape: step out to the parent (the page root deselects). */
+    function selectParent() {
+      const id = store.selection[0];
+      const n = id ? store.node(id) : null;
+      const parentId = n ? n.parent : null;
+      if (!parentId || parentId === canvas.renderer.rootId) {
+        if (store.selection.length) store.select([]);
+        if (store.view.context) store.setView({ context: null });
+        return !!id;
+      }
+      store.select([parentId]);
+      const c = store.view.context;
+      if (c && (c === parentId || !schema.ancestors(store.doc, parentId).includes(c))) {
+        const up = store.node(parentId);
+        store.setView({ context: up && up.parent && up.parent !== canvas.renderer.rootId ? up.parent : null });
+      }
+      announceSelected(parentId);
+      return true;
+    }
+
+    function selectSibling(dir) {
+      const doc = store.doc;
+      const id = store.selection[store.selection.length - 1];
+      let list;
+      let index;
+      if (id && own(doc.nodes, id) && doc.nodes[id].parent) {
+        list = (doc.nodes[doc.nodes[id].parent].children || []);
+        index = list.indexOf(id);
+      } else {
+        const scope = store.view.context && own(doc.nodes, store.view.context) ? store.view.context : canvas.renderer.rootId;
+        list = ((own(doc.nodes, scope) && doc.nodes[scope].children) || []);
+        index = dir > 0 ? -1 : 0;
+      }
+      if (!list.length) return false;
+      const next = list[((index + dir) % list.length + list.length) % list.length];
+      if (!next) return false;
+      store.select([next]);
+      if (canvas.viewport && typeof canvas.viewport.scrollToNode === 'function') canvas.viewport.scrollToNode(next);
+      announceSelected(next);
+      return true;
+    }
+
+    /** Mod+A: every unlocked, visible child of the container the selection lives in. */
+    function selectAllInContext() {
+      const doc = store.doc;
+      const d = app.docops;
+      let parentId = null;
+      const first = store.selection[0];
+      if (first && own(doc.nodes, first)) parentId = doc.nodes[first].parent;
+      if (!parentId && store.view.context && own(doc.nodes, store.view.context)) parentId = store.view.context;
+      if (!parentId) parentId = canvas.renderer.rootId;
+      const kids = ((own(doc.nodes, parentId) && doc.nodes[parentId].children) || [])
+        .filter((id) => !doc.nodes[id].hidden && !(d && d.isLocked(doc, id)));
+      if (!kids.length) return false;
+      store.select(kids);
+      announce(util.plural(kids.length, 'layer') + ' selected in ' + nodeLabel(parentId));
+      return true;
+    }
+
+    function clearSelection() {
+      if (store.selection.length || store.view.context) {
+        ctx.selectTarget(null);
+        announce('Selection cleared');
+        return true;
+      }
+      if (ownerDoc.activeElement === el && typeof el.blur === 'function') { el.blur(); return true; }
+      return false;
+    }
+
+    const NUDGE_KEYS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+
+    function onKeyDown(e) {
+      if (destroyed || e.defaultPrevented || e.isComposing) return;
+      if (e.target !== el || inTextEditor(e.target) || store.view.editingText) return;
+      const key = e.key;
+      const mod = modKey(e);
+      const take = () => { e.preventDefault(); e.stopPropagation(); };
+      if (own(NUDGE_KEYS, key) && !mod && !e.altKey) {
+        const [ux, uy] = NUDGE_KEYS[key];
+        const step = e.shiftKey ? 10 : 1;
+        take();
+        nudgeSelection(ux * step, uy * step);
+        return;
+      }
+      if (key === 'Enter' && !mod && !e.altKey) {
+        take();
+        if (e.shiftKey) selectParent(); else enterSelection();
+        return;
+      }
+      if (key === 'Escape' && !mod && !e.altKey && !e.shiftKey) {
+        if (store.selection.length) { take(); selectParent(); } else if (clearSelection()) take();
+        return;
+      }
+      if (key === 'Tab' && !mod && !e.altKey) {
+        if (selectSibling(e.shiftKey ? -1 : 1)) take();
+        return;
+      }
+      if (key === 'a' && mod && !e.altKey && !e.shiftKey) {
+        if (selectAllInContext()) take();
+      }
+    }
+
+    function onKeyUp(e) {
+      if (own(NUDGE_KEYS, e.key)) nudge = null;
+      if (e.key === 'Alt' && !active && hoverPt) scheduleHover(Object.assign({}, hoverPt, { altKey: false }));
+    }
+
+    function onAltDown(e) {
+      if (e.key === 'Alt' && !active && hoverPt) scheduleHover(Object.assign({}, hoverPt, { altKey: true }));
     }
 
     /* ------------------------------------------------------------ hover */
@@ -925,12 +1879,15 @@ APB.define('interaction', ['util', 'geometry', 'snapping', 'schema', 'elements']
       if ((vp && (vp.spacePressed || vp.panning)) || !tool || typeof tool.hover !== 'function') {
         setCursor('');
         setHover(null);
+        updateMeasure(null, null);
         return;
       }
+      const pt = point(hoverPt);
       let res = null;
-      try { res = tool.hover(ctx, point(hoverPt)); } catch (err) { res = null; }
+      try { res = tool.hover(ctx, pt); } catch (err) { res = null; }
       setCursor(res && res.cursor ? res.cursor : '');
       setHover(res ? res.hover : null);
+      updateMeasure(pt, res ? res.hover : null);
     }
 
     function onPointerLeave() {
@@ -938,6 +1895,7 @@ APB.define('interaction', ['util', 'geometry', 'snapping', 'schema', 'elements']
       cancelHover();
       setHover(null);
       setCursor('');
+      updateMeasure(null, null);
     }
 
     /* ----------------------------------------------------------- wiring */
@@ -955,6 +1913,13 @@ APB.define('interaction', ['util', 'geometry', 'snapping', 'schema', 'elements']
     listen(el, 'pointerleave', onPointerLeave);
     listen(el, 'dblclick', onDblClick);
     listen(el, 'contextmenu', onContextMenu);
+    listen(el, 'keydown', onKeyDown);
+    listen(win, 'keydown', onAltDown, true);
+    listen(win, 'keyup', onKeyUp, true);
+    listen(el, 'dragover', onDragOver);
+    listen(el, 'dragenter', onDragOver);
+    listen(el, 'dragleave', onDragLeave);
+    listen(el, 'drop', onDrop);
     listen(el, 'apb:gesturestart', () => { cancelActive(); cancelHover(); setHover(null); });
     listen(win, 'blur', () => cancelActive());
 
@@ -976,19 +1941,26 @@ APB.define('interaction', ['util', 'geometry', 'snapping', 'schema', 'elements']
       }
     }));
 
+    registerCommands();
+
     function destroy() {
       if (destroyed) return;
       cancelActive();
       cancelHover();
+      clearRepeat();
+      clearLongPress();
       destroyed = true;
       offs.splice(0).forEach((off) => { try { off(); } catch (_) { /* ignore */ } });
       el.style.removeProperty('--apb-cursor');
+      if (fileInput) { fileInput.remove(); fileInput = null; }
     }
 
     return {
       ctx,
       destroy,
       cancel: cancelActive,
+      openImagePicker,
+      keyboard: { nudge: nudgeSelection, enter: enterSelection, parent: selectParent, sibling: selectSibling, all: selectAllInContext, none: clearSelection },
       get active() { return !!active; },
       get gestureName() { return active && active.gesture ? active.gesture.name || null : null; },
       registerTool(name, def) {
