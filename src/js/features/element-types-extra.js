@@ -66,3 +66,8 @@ APB.define('element-types-extra', ['elements', 'util'], function (elements, util
 
   return { registered: true };
 });
+
+// Registration is a side effect of the factory running, so require it eagerly at script-load time
+// (nothing else needs `element-types-extra`'s return value) rather than waiting for a lazy caller
+// that may never come, the way `element-types` piggybacks on `elements`'s own first-use hook.
+APB.require('element-types-extra');
