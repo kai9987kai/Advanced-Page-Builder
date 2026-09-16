@@ -166,3 +166,7 @@ APB.define('templates', ['util'], function (util) {
 
   return api;
 });
+
+// The APB.plugin(...) call above only runs once this module is required — force that now (script
+// load time, well before app.js's plugin loop) instead of waiting for a lazy caller.
+APB.require('templates');
