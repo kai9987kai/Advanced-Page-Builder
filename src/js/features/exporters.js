@@ -166,7 +166,7 @@ APB.define('exporters', ['schema', 'vdom', 'style', 'sanitize', 'util', 'actions
     const script = withActions ? '<script>' + actionsMod.runtimeSource() + '</script>' : '';
     const { head, title } = metaHTML(doc, page, { withActions });
     const lang = (doc.settings && doc.settings.lang) || 'en';
-    const comment = o.sourceComment !== false ? '<!-- Built with Advanced Page Builder (zero-dependency, single file) -->\n' : '';
+    const comment = o.sourceComment !== false ? '<' + '!-- Built with Advanced Page Builder (zero-dependency, single file) --' + '>\n' : '';
 
     const out = comment +
       '<!doctype html>\n<html lang="' + util.escapeAttr(lang) + '">\n<head>\n' + head + '\n<title>' + title + '</title>\n' +

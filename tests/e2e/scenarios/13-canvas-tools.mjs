@@ -36,7 +36,8 @@ export async function run(page, { assert, log }) {
   });
   const { root, section } = setup;
   assert.deepEqual(setup.tools, [
-    'tool.ellipse', 'tool.frame', 'tool.hand', 'tool.image', 'tool.line', 'tool.rect', 'tool.section', 'tool.select', 'tool.text'
+    'tool.button', 'tool.checklist', 'tool.ellipse', 'tool.frame', 'tool.hand', 'tool.image', 'tool.line', 'tool.rect', 'tool.section',
+    'tool.select', 'tool.text'
   ], 'every tool command is registered');
   assert.deepEqual(setup.select, ['select.all', 'select.child', 'select.next', 'select.none', 'select.parent', 'select.prev'],
     'the selection commands are registered');

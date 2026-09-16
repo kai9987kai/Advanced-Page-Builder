@@ -6,7 +6,7 @@
 <meta name="color-scheme" content="light dark">
 <meta name="description" content="Advanced Page Builder — a zero-dependency visual web page builder that runs entirely in your browser.">
 <meta name="generator" content="Advanced Page Builder 2.0.0">
-<!-- Advanced Page Builder v2.0.0 · built 2026-09-16T16:25:39.823Z · single-file build of src/index.html -->
+<!-- Advanced Page Builder v2.0.0 · built 2026-09-16T18:21:28.221Z · single-file build of src/index.html -->
 <title>Advanced Page Builder</title>
 
 <style data-src="css/tokens.css">
@@ -3699,6 +3699,10 @@ html.apb-scrubbing * {
   min-width: 0;
 }
 
+.apb-listedit--checkable .apb-listedit-row > .apb-switch {
+  flex: 0 0 auto;
+}
+
 .apb-listedit > .apb-btn {
   align-self: flex-start;
 }
@@ -3968,7 +3972,147 @@ html.apb-scrubbing * {
 /* stub — owned by C3 */
 </style>
 <style data-src="css/tools.css">
-/* stub — owned by C4 */
+/*
+ * tools — dialogs for the export/preview/templates tools (ARCHITECTURE.md §11; `features/exporters.js`,
+ * `features/templates.js`). Shared panel primitives live in panels.css; this file only styles the
+ * dialog bodies those two plugins build.
+ */
+
+/* ------------------------------------------------------------- export dialog */
+
+.apb-export-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--apb-space-3);
+  min-width: 0;
+}
+
+.apb-export-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--apb-space-3);
+}
+
+.apb-export-controls > .apb-select {
+  min-width: 140px;
+}
+
+.apb-export-code {
+  margin: 0;
+  max-height: 52vh;
+  overflow: auto;
+  padding: var(--apb-space-3);
+  border: 1px solid var(--apb-border);
+  border-radius: var(--apb-radius-2);
+  background: var(--apb-surface-2);
+  color: var(--apb-text);
+  font: var(--apb-font-size-sm) / 1.55 var(--apb-font-mono);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.apb-export-meta {
+  font-size: var(--apb-font-size-xs);
+  color: var(--apb-text-muted);
+}
+
+/* ------------------------------------------------------------ templates gallery */
+
+.apb-templates-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--apb-space-3);
+  max-height: 60vh;
+  overflow: auto;
+  padding: 2px;
+}
+
+.apb-template-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--apb-space-2);
+  padding: var(--apb-space-3);
+  border: 1px solid var(--apb-border);
+  border-radius: var(--apb-radius-3);
+  background: var(--apb-surface);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.apb-template-card:hover,
+.apb-template-card:focus-visible {
+  border-color: var(--apb-accent);
+  background: var(--apb-accent-soft);
+  outline: none;
+}
+
+.apb-template-card-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 72px;
+  border-radius: var(--apb-radius-2);
+  background: var(--apb-surface-2);
+  color: var(--apb-text-muted);
+}
+
+.apb-template-card-title {
+  font-size: var(--apb-font-size-md);
+  font-weight: 600;
+}
+
+.apb-template-card-desc {
+  font-size: var(--apb-font-size-xs);
+  color: var(--apb-text-muted);
+  line-height: 1.4;
+}
+
+/* ------------------------------------------------------------------ actions */
+
+.apb-actions-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--apb-space-3);
+}
+
+.apb-actions-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--apb-space-2);
+  padding: var(--apb-space-3);
+  border: 1px solid var(--apb-border);
+  border-radius: var(--apb-radius-2);
+  background: var(--apb-surface-2);
+}
+
+.apb-actions-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--apb-space-2);
+}
+
+.apb-actions-card-head > .apb-select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.apb-actions-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.apb-actions-field--toggle {
+  flex-direction: row;
+  align-items: center;
+}
+
+.apb-actions-field-label {
+  font-size: var(--apb-font-size-xs);
+  color: var(--apb-text-muted);
+}
 </style>
 </head>
 <body>
@@ -6076,7 +6220,7 @@ APB.define('schema', ['util'], function (util) {
   const BP_KEYS = Object.freeze(['x', 'y', 'w', 'h', 'rotation', 'hidden', 'sizing', 'layout', 'style', 'props']);
 
   const NODE_KEYS = Object.freeze(['id', 'type', 'name', 'parent', 'children', 'x', 'y', 'w', 'h', 'rotation', 'locked',
-    'hidden', 'sizing', 'layout', 'style', 'props', 'bp', 'states', 'motion', 'attrs', 'css']);
+    'hidden', 'sizing', 'layout', 'style', 'props', 'bp', 'states', 'motion', 'attrs', 'css', 'actions']);
 
   /** Keys whose plain-object values merge one level deep (updateNode patches, cascade). */
   const MERGE_KEYS = Object.freeze(['style', 'props', 'layout', 'sizing', 'attrs']);
@@ -6172,7 +6316,7 @@ APB.define('schema', ['util'], function (util) {
       locked: false, hidden: false,
       sizing: { w: 'fixed', h: 'fixed' },
       layout: null,
-      style: {}, props: {}, bp: {}, states: {}, motion: null, attrs: {}, css: ''
+      style: {}, props: {}, bp: {}, states: {}, motion: null, attrs: {}, css: '', actions: []
     };
   }
 
@@ -6497,6 +6641,7 @@ APB.define('schema', ['util'], function (util) {
     n.attrs = obj(n.attrs);
     n.motion = util.isPlainObject(n.motion) ? n.motion : null;
     n.css = str(n.css, '');
+    n.actions = Array.isArray(n.actions) ? n.actions.filter((a) => util.isPlainObject(a) && typeof a.type === 'string') : [];
     n.parent = typeof n.parent === 'string' ? n.parent : null;
     if (isContainer(type)) {
       n.children = Array.isArray(n.children) ? n.children.filter((c) => typeof c === 'string') : [];
@@ -9000,7 +9145,7 @@ APB.define('style', ['util', 'schema', 'sanitize', 'elements'], function (util, 
  * toHTML/buildTree/expandInstance are pure and work in Node; toDOM/patch return null (no-op)
  * when there is no DOM.
  */
-APB.define('vdom', ['util', 'schema', 'sanitize', 'elements', 'style'], function (util, schema, sanitize, elements, style) {
+APB.define('vdom', ['util', 'schema', 'sanitize', 'elements', 'style', 'actions'], function (util, schema, sanitize, elements, style, actionsMod) {
   'use strict';
 
   const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -9434,6 +9579,12 @@ APB.define('vdom', ['util', 'schema', 'sanitize', 'elements', 'style'], function
       if (typeof at.role === 'string' && /^[a-z]+(?: [a-z]+)*$/.test(at.role.trim())) a.role = at.role.trim();
       if (typeof at.title === 'string' && at.title.trim()) a.title = at.title.trim();
       if (env.withIds) a['data-node-id'] = eff.id;
+      if (Array.isArray(eff.actions) && eff.actions.length) {
+        const clean = actionsMod.normalize(eff.actions, { doc: env.doc });
+        if (clean.length) {
+          try { a['data-apb-actions'] = JSON.stringify(clean); } catch (err) { /* non-serializable action data is dropped */ }
+        }
+      }
     }
     if ((env.inlineStyles || ro.decorate === false) && decls.size) v.style = style.declsToObject(decls);
   }
@@ -11526,6 +11677,193 @@ APB.define('docops', ['util', 'geometry', 'schema'], function (util, geometry, s
     createComponent, instantiate, detach,
     worldBox, worldBounds, toLocal, topLevel, sortDocOrder, isLocked
   };
+});
+</script>
+<script data-src="js/core/actions.js">
+/* @node-testable */
+/*
+ * actions — click/change interactions ("actions") a node can carry: a small set of built-in
+ * behaviours (navigate, scroll to, show/hide/toggle another node, toggle a class, submit the
+ * nearest form) plus a "run custom code" escape hatch. Pure (no DOM); consumed by
+ * `features/actions.js` (the inspector "Actions" section), `features/exporters.js` and
+ * `features/preview.js` (which append `runtimeSource()` as a trusted <script> — vdom never emits
+ * <script> tags itself, see ARCHITECTURE.md §6.9.1). See ARCHITECTURE.md "Contract additions".
+ *
+ * Node shape: `node.actions = [{ id, trigger: 'click'|'change', type, ...type-specific fields }]`.
+ * `type` is one of `TYPES[].id`; each type declares the fields it needs (`fields: [{ key, label,
+ * kind }]`, `kind` one of `url|toggle|target|text|code`). `normalize(list, { sanitizeUrl, doc })`
+ * drops anything malformed and is the only writer other modules should trust.
+ */
+APB.define('actions', ['util', 'sanitize'], function (util, sanitize) {
+  'use strict';
+
+  const MAX_ACTIONS = 40;
+  const MAX_CODE = 20000;
+  const TRIGGERS = new Set(['click', 'change']);
+
+  const TYPES = [
+    { id: 'link', label: 'Go to URL', icon: 'export', fields: [
+      { key: 'url', label: 'URL', kind: 'url', placeholder: 'https://' },
+      { key: 'newTab', label: 'Open in a new tab', kind: 'toggle' }
+    ] },
+    { id: 'scrollTo', label: 'Scroll to element', icon: 'arrow-down', fields: [
+      { key: 'target', label: 'Element', kind: 'target' }
+    ] },
+    { id: 'toggle', label: 'Toggle visibility', icon: 'eye', fields: [
+      { key: 'target', label: 'Element', kind: 'target' }
+    ] },
+    { id: 'show', label: 'Show element', icon: 'eye', fields: [
+      { key: 'target', label: 'Element', kind: 'target' }
+    ] },
+    { id: 'hide', label: 'Hide element', icon: 'eye', fields: [
+      { key: 'target', label: 'Element', kind: 'target' }
+    ] },
+    { id: 'toggleClass', label: 'Toggle CSS class', icon: 'code', fields: [
+      { key: 'target', label: 'Element', kind: 'target' },
+      { key: 'className', label: 'Class name', kind: 'text', placeholder: 'is-active' }
+    ] },
+    { id: 'submit', label: 'Submit the form', icon: 'button', fields: [] },
+    { id: 'code', label: 'Run custom code', icon: 'code', fields: [
+      { key: 'code', label: 'JavaScript', kind: 'code', placeholder: '// event, el, document, window are in scope' }
+    ] }
+  ];
+
+  const TYPES_BY_ID = new Map(TYPES.map((t) => [t.id, t]));
+
+  /** The event a node type's actions listen for. Buttons/links click; checklist items change. */
+  const DEFAULT_TRIGGER = { button: 'click', checklist: 'change', text: 'click', frame: 'click', shape: 'click', image: 'click' };
+
+  function triggerFor(nodeType) {
+    return DEFAULT_TRIGGER[nodeType] || 'click';
+  }
+
+  function has(type) {
+    return TYPES_BY_ID.has(type);
+  }
+
+  function fieldsFor(type) {
+    const def = TYPES_BY_ID.get(type);
+    return def ? def.fields.slice() : [];
+  }
+
+  function makeId() {
+    return util.uid('act');
+  }
+
+  /** New action of `type` for a node of `nodeType`, sane empty defaults for every field. */
+  function create(type, nodeType) {
+    const def = TYPES_BY_ID.get(type) || TYPES[0];
+    const a = { id: makeId(), trigger: triggerFor(nodeType), type: def.id };
+    for (const f of def.fields) {
+      if (f.kind === 'toggle') a[f.key] = false;
+      else a[f.key] = '';
+    }
+    return a;
+  }
+
+  /** normalize(list, { sanitizeUrl, doc }) → clean array; drops anything malformed or unknown. */
+  function normalize(list, opts) {
+    if (!Array.isArray(list)) return [];
+    const o = opts || {};
+    const urlFn = typeof o.sanitizeUrl === 'function' ? o.sanitizeUrl : (u) => sanitize.url(u, 'link');
+    const nodes = o.doc && util.isPlainObject(o.doc.nodes) ? o.doc.nodes : null;
+    const out = [];
+    for (const raw of list) {
+      if (!util.isPlainObject(raw) || !has(raw.type)) continue;
+      const def = TYPES_BY_ID.get(raw.type);
+      const a = {
+        id: typeof raw.id === 'string' && raw.id ? raw.id : makeId(),
+        trigger: TRIGGERS.has(raw.trigger) ? raw.trigger : 'click',
+        type: def.id
+      };
+      for (const f of def.fields) {
+        const v = raw[f.key];
+        if (f.kind === 'url') a[f.key] = typeof v === 'string' && v ? urlFn(v) : '';
+        else if (f.kind === 'toggle') a[f.key] = !!v;
+        else if (f.kind === 'target') a[f.key] = typeof v === 'string' && v && (!nodes || Object.prototype.hasOwnProperty.call(nodes, v)) ? v : '';
+        else if (f.kind === 'code') a[f.key] = typeof v === 'string' ? v.slice(0, MAX_CODE) : '';
+        else if (f.key === 'className') a[f.key] = typeof v === 'string' ? sanitize.className(v) : '';
+        else a[f.key] = typeof v === 'string' ? v.slice(0, 200) : '';
+      }
+      out.push(a);
+      if (out.length >= MAX_ACTIONS) break;
+    }
+    return out;
+  }
+
+  /** Short one-line summary for a collapsed row, e.g. "Go to URL — https://example.com". */
+  function describe(action) {
+    const def = TYPES_BY_ID.get(action && action.type);
+    if (!def) return 'Unknown action';
+    if (action.type === 'link') return def.label + (action.url ? ' — ' + action.url : '');
+    if (action.type === 'code') return def.label + (action.code ? ' — ' + action.code.trim().slice(0, 40).replace(/\s+/g, ' ') : '');
+    if (['scrollTo', 'toggle', 'show', 'hide', 'toggleClass'].includes(action.type)) return def.label + (action.target ? '' : ' — no target set');
+    return def.label;
+  }
+
+  /**
+   * Trusted runtime appended verbatim (never through vdom/sanitize) by exporters/preview when any
+   * node in the exported tree carries actions. Delegates one listener per (element, trigger); a
+   * 'code' action runs in the page's own scope with (event, el, document, window) — this is the
+   * site owner's own code, the same trust boundary as `node.css` / `settings.globalCSS`.
+   */
+  function runtimeSource() {
+    return '(function(){\n' +
+      '  function apbRunAction(a, el, evt) {\n' +
+      '    try {\n' +
+      '      switch (a.type) {\n' +
+      '        case "link":\n' +
+      '          if (!a.url) return;\n' +
+      '          if (a.newTab) window.open(a.url, "_blank", "noopener"); else window.location.href = a.url;\n' +
+      '          break;\n' +
+      '        case "scrollTo": {\n' +
+      '          var t = a.target && document.querySelector(\'[data-node-id="\' + a.target + \'"]\');\n' +
+      '          if (t && t.scrollIntoView) t.scrollIntoView({ behavior: "smooth", block: "start" });\n' +
+      '          break;\n' +
+      '        }\n' +
+      '        case "toggle": case "show": case "hide": {\n' +
+      '          var t2 = a.target && document.querySelector(\'[data-node-id="\' + a.target + \'"]\');\n' +
+      '          if (!t2) return;\n' +
+      '          var hidden = t2.style.display === "none";\n' +
+      '          var next = a.type === "show" ? false : a.type === "hide" ? true : !hidden;\n' +
+      '          t2.style.display = next ? "none" : "";\n' +
+      '          break;\n' +
+      '        }\n' +
+      '        case "toggleClass": {\n' +
+      '          var t3 = a.target && document.querySelector(\'[data-node-id="\' + a.target + \'"]\');\n' +
+      '          if (t3 && a.className) t3.classList.toggle(a.className);\n' +
+      '          break;\n' +
+      '        }\n' +
+      '        case "submit": {\n' +
+      '          var f = el.closest("form");\n' +
+      '          if (f) { if (f.requestSubmit) f.requestSubmit(); else f.submit(); }\n' +
+      '          break;\n' +
+      '        }\n' +
+      '        case "code":\n' +
+      '          if (a.code) new Function("event", "el", "document", "window", a.code).call(el, evt, el, document, window);\n' +
+      '          break;\n' +
+      '      }\n' +
+      '    } catch (err) { if (window.console) console.error("[apb-action]", err); }\n' +
+      '  }\n' +
+      '  function apbInit(root) {\n' +
+      '    (root || document).querySelectorAll("[data-apb-actions]").forEach(function (el) {\n' +
+      '      if (el.__apbActionsBound) return;\n' +
+      '      el.__apbActionsBound = true;\n' +
+      '      var list = [];\n' +
+      '      try { list = JSON.parse(el.getAttribute("data-apb-actions") || "[]"); } catch (e) { list = []; }\n' +
+      '      var byTrigger = {};\n' +
+      '      list.forEach(function (a) { (byTrigger[a.trigger] = byTrigger[a.trigger] || []).push(a); });\n' +
+      '      Object.keys(byTrigger).forEach(function (trigger) {\n' +
+      '        el.addEventListener(trigger, function (evt) { byTrigger[trigger].forEach(function (a) { apbRunAction(a, el, evt); }); });\n' +
+      '      });\n' +
+      '    });\n' +
+      '  }\n' +
+      '  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", function () { apbInit(document); });\n' +
+      '  else apbInit(document);\n' +
+      '})();';
+  }
+
+  return { TYPES, has, fieldsFor, triggerFor, create, normalize, describe, runtimeSource, MAX_ACTIONS, MAX_CODE };
 });
 </script>
 <!-- canvas (B1) -->
@@ -13988,7 +14326,9 @@ APB.define('interaction', ['util', 'geometry', 'snapping', 'schema', 'elements',
     rect: { spec: () => ({ type: 'shape', name: 'Rectangle', props: { shape: 'rect' } }), size: { w: 160, h: 160 } },
     ellipse: { spec: () => ({ type: 'shape', name: 'Ellipse', props: { shape: 'ellipse' } }), size: { w: 160, h: 160 } },
     line: { spec: () => ({ type: 'shape', name: 'Line', props: { shape: 'line' } }), size: { w: 240, h: 1 }, flat: true },
-    image: { spec: () => ({ type: 'image' }), size: { w: 320, h: 240 }, pick: true }
+    image: { spec: () => ({ type: 'image' }), size: { w: 320, h: 240 }, pick: true },
+    button: { spec: () => ({ type: 'button' }), size: { w: 160, h: 48 } },
+    checklist: { spec: () => ({ type: 'checklist' }), size: { w: 280, h: 140 } }
   };
 
   const TOOL_KEYS = [
@@ -14000,7 +14340,9 @@ APB.define('interaction', ['util', 'geometry', 'snapping', 'schema', 'elements',
     ['rect', 'Rectangle', 'rect', ['R']],
     ['ellipse', 'Ellipse', 'ellipse', ['O']],
     ['line', 'Line', 'line', ['L']],
-    ['image', 'Image', 'image', ['Mod+Shift+K']]
+    ['image', 'Image', 'image', ['Mod+Shift+K']],
+    ['button', 'Button', 'button', ['B']],
+    ['checklist', 'Checklist', 'checklist', ['C']]
   ];
 
   const IMAGE_RE = /\.(png|jpe?g|gif|webp|avif|svg|bmp|ico)$/i;
@@ -16238,7 +16580,7 @@ APB.define('canvas', ['util', 'events', 'schema', 'elements', 'geometry', 'comma
     'use strict';
 
     const SVG_NS = 'http://www.w3.org/2000/svg';
-    const TOOLS = ['select', 'hand', 'frame', 'section', 'text', 'rect', 'ellipse', 'line', 'image'];
+    const TOOLS = ['select', 'hand', 'frame', 'section', 'text', 'rect', 'ellipse', 'line', 'image', 'button', 'checklist'];
     let commandsRegistered = false;
     const menusRegistered = new WeakSet();
 
@@ -20715,7 +21057,7 @@ APB.define('shell', ['env', 'util', 'schema', 'commands', 'widgets', 'icons', 'd
     const MENUS = [['file', 'File'], ['edit', 'Edit'], ['view', 'View'], ['insert', 'Insert'], ['arrange', 'Arrange'], ['help', 'Help']];
     const TOOL_LABELS = {
       select: 'Select', hand: 'Hand', frame: 'Frame', section: 'Section', text: 'Text', rect: 'Rectangle',
-      ellipse: 'Ellipse', line: 'Line', image: 'Image'
+      ellipse: 'Ellipse', line: 'Line', image: 'Image', button: 'Button', checklist: 'Checklist'
     };
     const THEMES = ['system', 'light', 'dark'];
     const THEME_LABELS = { system: 'System', light: 'Light', dark: 'Dark' };
@@ -23603,16 +23945,24 @@ APB.define('shell', ['env', 'util', 'schema', 'commands', 'widgets', 'icons', 'd
           return el;
         }
 
-        /** Editable string list (list element items). */
+        /**
+         * Editable string list (list element items). `o.checkable` switches items to
+         * `{ id, text, checked }` objects with a checkbox per row (used by the `checklist` type —
+         * see `features/element-types-extra.js`); plain items stay flat strings.
+         */
         function listEditor(o) {
+          const checkable = !!o.checkable;
           let items = [];
           let disabled = false;
           const rows = h('div', { class: 'apb-listedit-rows' });
           const addBtn = widgets.button({
             label: 'Add item', icon: 'plus', size: 'sm', variant: 'subtle',
-            onClick: () => { items = items.concat(['New item']); render(); o.onInput(items.slice(), { commit: true }); focusRow(items.length - 1); }
+            onClick: () => {
+              items = items.concat([checkable ? { id: util.uid('ci'), text: 'New item', checked: false } : 'New item']);
+              render(); o.onInput(items.slice(), { commit: true }); focusRow(items.length - 1);
+            }
           });
-          const el = h('div', { class: 'apb-listedit' }, rows, addBtn);
+          const el = h('div', { class: ['apb-listedit', checkable && 'apb-listedit--checkable'] }, rows, addBtn);
 
           function focusRow(i) {
             const input = rows.children[i] && rows.children[i].querySelector('input');
@@ -23630,12 +23980,20 @@ APB.define('shell', ['env', 'util', 'schema', 'commands', 'widgets', 'icons', 'd
             focusRow(j);
           }
           function render() {
-            rows.replaceChildren(...items.map((text, i) => {
+            rows.replaceChildren(...items.map((item, i) => {
+              const text = checkable ? (item && item.text) || '' : item;
               const input = widgets.textField({
                 value: text, ariaLabel: 'Item ' + (i + 1),
-                onInput: (v, ctx) => { items[i] = v; o.onInput(items.slice(), { commit: !!(ctx && ctx.commit) }); }
+                onInput: (v, ctx) => {
+                  items[i] = checkable ? Object.assign({}, items[i], { text: v }) : v;
+                  o.onInput(items.slice(), { commit: !!(ctx && ctx.commit) });
+                }
               });
-              return h('div', { class: 'apb-listedit-row' }, input,
+              const check = checkable ? widgets.toggle({
+                ariaLabel: 'Checked', checked: !!(item && item.checked), labelVisible: false,
+                onInput: (v) => { items[i] = Object.assign({}, items[i], { checked: v }); o.onInput(items.slice(), { commit: true }); }
+              }) : null;
+              return h('div', { class: 'apb-listedit-row' }, check, input,
                 widgets.iconButton({ icon: 'chevron-up', label: 'Move item ' + (i + 1) + ' up', size: 'sm', disabled: i === 0, onClick: () => move(i, -1) }),
                 widgets.iconButton({ icon: 'chevron-down', label: 'Move item ' + (i + 1) + ' down', size: 'sm', disabled: i === items.length - 1, onClick: () => move(i, 1) }),
                 widgets.iconButton({ icon: 'trash', label: 'Remove item ' + (i + 1), size: 'sm', onClick: () => { items = items.filter((_, k) => k !== i); render(); o.onInput(items.slice(), { commit: true }); } }));
@@ -23646,7 +24004,12 @@ APB.define('shell', ['env', 'util', 'schema', 'commands', 'widgets', 'icons', 'd
             el, labelTarget: addBtn,
             get value() { return items.slice(); },
             set value(v) {
-              const next = (Array.isArray(v) ? v : []).map((it) => (util.isPlainObject(it) ? String(it.text || '') : String(it == null ? '' : it)));
+              const list = Array.isArray(v) ? v : [];
+              const next = checkable
+                ? list.map((it) => (util.isPlainObject(it)
+                  ? { id: typeof it.id === 'string' && it.id ? it.id : util.uid('ci'), text: String(it.text || ''), checked: !!it.checked }
+                  : { id: util.uid('ci'), text: String(it == null ? '' : it), checked: false }))
+                : list.map((it) => (util.isPlainObject(it) ? String(it.text || '') : String(it == null ? '' : it)));
               if (util.deepEqual(next, items)) return;
               items = next;
               render();
@@ -24155,7 +24518,7 @@ APB.define('shell', ['env', 'util', 'schema', 'commands', 'widgets', 'icons', 'd
             case 'list':
               addField(parent, Object.assign({}, base, {
                 layout: 'stacked', fallback: [],
-                control: (write) => listEditor({ onInput: (v, ctx) => write(v, ctx) }),
+                control: (write) => listEditor({ checkable: !!spec.checkable, onInput: (v, ctx) => write(v, ctx) }),
                 applies
               }));
               return true;
@@ -25604,10 +25967,421 @@ APB.define('tokens', ['util', 'schema', 'color', 'docops', 'widgets', 'icons'],
 </script>
 <!-- features (C2) -->
 <script data-src="js/features/element-types-extra.js">
-/* stub — owned by C2 */
+/* @node-testable */
+/*
+ * element-types-extra — additional element types beyond the core 14 (ARCHITECTURE.md §5.4).
+ * Registers into `elements` exactly like `core/element-types.js`; kept as a separate feature so the
+ * core set stays closed. Currently: `checklist` (a list of checkable items — see `props.items[].checked`
+ * and the "Actions" inspector section in `features/actions.js`, which fires on the `change` trigger).
+ */
+APB.define('element-types-extra', ['elements', 'util'], function (elements, util) {
+  'use strict';
+
+  if (typeof APB !== 'undefined' && APB.has('icons')) {
+    APB.require('icons').add('checklist',
+      'R2 4 5 5 1|M3.2 6.3l0.8 0.9 1.6-1.9|M10 6.5h11|R2 10.5 5 5 1|M10 13h11|R2 17 5 5 1|M3.2 19.3l0.8 0.9 1.6-1.9|M10 19.5h11');
+  }
+
+  const str = (v) => (v === null || v === undefined ? '' : String(v));
+
+  function normalizeItems(items) {
+    return (Array.isArray(items) ? items : []).map((it, i) => {
+      if (util.isPlainObject(it)) {
+        return { id: typeof it.id === 'string' && it.id ? it.id : util.uid('ci'), text: str(it.text), checked: !!it.checked };
+      }
+      return { id: util.uid('ci'), text: str(it), checked: false };
+    });
+  }
+
+  elements.register({
+    type: 'checklist', label: 'Checklist', icon: 'checklist', category: 'text',
+    caps: { fill: true, border: true, radius: true, shadow: true, text: true, padding: true, effects: true },
+    bpProps: ['items'],
+    defaults: () => ({
+      name: 'Checklist', w: 280, h: 140,
+      style: { fontSize: 16, lineHeight: 1.5, color: '#111827', padding: [4, 4, 4, 4] },
+      props: {
+        items: [
+          { id: util.uid('ci'), text: 'First task', checked: false },
+          { id: util.uid('ci'), text: 'Second task', checked: false },
+          { id: util.uid('ci'), text: 'Third task', checked: true }
+        ]
+      }
+    }),
+    vnode: (node, ctx) => {
+      const items = normalizeItems((node.props || {}).items);
+      return {
+        tag: 'ul', attrs: { class: 'apb-checklist' }, style: { margin: '0', padding: '0', listStyle: 'none' },
+        children: items.map((it) => {
+          const inputAttrs = { type: 'checkbox', class: 'apb-checklist-input', 'data-item-id': it.id };
+          if (it.checked) inputAttrs.checked = true;
+          if (ctx && ctx.mode === 'editor') inputAttrs.tabindex = '-1';
+          return {
+            tag: 'li', style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 0' },
+            children: [
+              { tag: 'input', attrs: inputAttrs },
+              { tag: 'span', attrs: { class: 'apb-checklist-text' }, text: it.text }
+            ]
+          };
+        })
+      };
+    },
+    inspector: [{
+      title: 'Checklist', fields: [
+        { key: 'props.items', label: 'Items', type: 'list', checkable: true }
+      ]
+    }]
+  });
+
+  return { registered: true };
+});
+</script>
+<script data-src="js/features/actions.js">
+/*
+ * actions (UI) — the inspector "Actions" section for `button` and `checklist` nodes: add / edit /
+ * remove entries from `node.actions` (shape and runtime owned by `core/actions.js`). Buttons fire on
+ * click, checklist items fire on change (the checkbox that changed bubbles a native `change` event
+ * up to the checklist's root element, which is what the exported runtime listens on).
+ *
+ * Single-selection only (one node, type `button` or `checklist`) — editing a heterogeneous list
+ * field across a multi-selection would need a "mixed" model this doesn't attempt.
+ */
+(function () {
+  'use strict';
+
+  const APPLIES_TYPES = ['button', 'checklist'];
+
+  APB.plugin({
+    id: 'actionsUI',
+    order: 42,
+    requires: ['actions', 'widgets', 'icons'],
+
+    init(app) {
+      const actionsMod = APB.require('actions');
+      const widgets = APB.require('widgets');
+      const { h } = widgets;
+      const store = app.store;
+      const docops = app.docops;
+      const schema = app.schema;
+
+      if (!app.ui || typeof app.ui.registerInspectorSection !== 'function') return;
+
+      function currentPage() {
+        const doc = store.doc;
+        const pages = Array.isArray(doc.pages) ? doc.pages : [];
+        return pages.find((p) => p.id === store.view.pageId) || pages[0] || null;
+      }
+
+      function targetOptions(ownId) {
+        const doc = store.doc;
+        const page = currentPage();
+        const opts = [{ value: '', label: 'Choose an element…' }];
+        if (!page || !doc.nodes[page.root]) return opts;
+        const ids = [page.root].concat(schema.descendants(doc, page.root));
+        for (const id of ids) {
+          if (id === ownId) continue;
+          const n = doc.nodes[id];
+          if (n) opts.push({ value: id, label: (n.name || n.type) + '  ·  ' + n.type });
+        }
+        return opts;
+      }
+
+      function mount(container) {
+        let node = null;
+        let renderedSig = null;
+        const bursts = new Map();
+        const list = h('div', { class: 'apb-actions-list' });
+        const addBtn = widgets.button({ label: 'Add action', icon: 'plus', size: 'sm', variant: 'subtle', onClick: openAddMenu });
+        const el = h('div', { class: 'apb-actions-section' }, list, addBtn);
+        container.appendChild(el);
+
+        function burstKey(fieldKey) {
+          return 'actions:' + node.id + ':' + fieldKey + '#' + (bursts.get(fieldKey) || 0);
+        }
+
+        function write(nextActions, fieldKey, commit) {
+          renderedSig = JSON.stringify(nextActions);
+          const opts = { bp: null, label: 'Edit actions', coalesce: burstKey(fieldKey || 'row') };
+          docops.update(app, [node.id], { actions: nextActions }, opts);
+          if (commit !== false) bursts.set(fieldKey || 'row', (bursts.get(fieldKey || 'row') || 0) + 1);
+        }
+
+        function openAddMenu(e) {
+          if (!node || !app.ui.menu) return;
+          const items = actionsMod.TYPES.map((t) => ({
+            label: t.label, icon: t.icon,
+            run: () => {
+              const next = (node.actions || []).concat([actionsMod.create(t.id, node.type)]);
+              node = Object.assign({}, node, { actions: next });
+              renderList(next);
+              write(next, 'add', true);
+            }
+          }));
+          app.ui.menu(e, items, { label: 'Add action' });
+        }
+
+        function fieldControl(action, index, field) {
+          const onChange = (value, ctx) => {
+            const next = (node.actions || []).slice();
+            next[index] = Object.assign({}, next[index], { [field.key]: value });
+            node = Object.assign({}, node, { actions: next });
+            write(next, action.id + ':' + field.key, !ctx || ctx.commit !== false);
+          };
+          if (field.kind === 'toggle') {
+            return h('div', { class: 'apb-actions-field apb-actions-field--toggle' },
+              widgets.toggle({ label: field.label, checked: !!action[field.key], onInput: (v) => onChange(v, { commit: true }) }));
+          }
+          if (field.kind === 'target') {
+            return h('div', { class: 'apb-actions-field' },
+              h('label', { class: 'apb-actions-field-label' }, field.label),
+              widgets.select({ ariaLabel: field.label, value: action[field.key] || '', options: targetOptions(node.id), onInput: (v) => onChange(v, { commit: true }) }));
+          }
+          if (field.kind === 'code') {
+            return h('div', { class: 'apb-actions-field apb-actions-field--code' },
+              h('label', { class: 'apb-actions-field-label' }, field.label),
+              widgets.textArea({ ariaLabel: field.label, value: action[field.key] || '', rows: 6, monospace: true, placeholder: field.placeholder, onInput: onChange }));
+          }
+          return h('div', { class: 'apb-actions-field' },
+            h('label', { class: 'apb-actions-field-label' }, field.label),
+            widgets.textField({ ariaLabel: field.label, value: action[field.key] || '', placeholder: field.placeholder, type: field.kind === 'url' ? 'url' : 'text', onInput: onChange }));
+        }
+
+        function renderList(arr) {
+          const items = Array.isArray(arr) ? arr : [];
+          list.replaceChildren();
+          if (!items.length) {
+            list.appendChild(widgets.emptyState({
+              icon: 'code', title: 'No actions yet',
+              message: node && node.type === 'checklist'
+                ? 'Add an action to run when an item is checked or unchecked.'
+                : 'Add an action to run when this button is clicked.'
+            }));
+            return;
+          }
+          items.forEach((action, i) => {
+            const def = actionsMod.TYPES.find((t) => t.id === action.type) || actionsMod.TYPES[0];
+            const typeSelect = widgets.select({
+              ariaLabel: 'Action type', value: action.type,
+              options: actionsMod.TYPES.map((t) => ({ value: t.id, label: t.label })),
+              onInput: (v) => {
+                const next = (node.actions || []).slice();
+                next[i] = Object.assign(actionsMod.create(v, node.type), { id: action.id });
+                node = Object.assign({}, node, { actions: next });
+                renderList(next);
+                write(next, 'type', true);
+              }
+            });
+            const removeBtn = widgets.iconButton({
+              icon: 'trash', label: 'Remove action', size: 'sm',
+              onClick: () => {
+                const next = (node.actions || []).filter((a) => a.id !== action.id);
+                node = Object.assign({}, node, { actions: next });
+                renderList(next);
+                write(next, 'remove', true);
+              }
+            });
+            const card = h('div', { class: 'apb-actions-card' },
+              h('div', { class: 'apb-actions-card-head' }, typeSelect, removeBtn),
+              def.fields.map((f) => fieldControl(action, i, f)));
+            list.appendChild(card);
+          });
+        }
+
+        return {
+          el,
+          update(nodes) {
+            const n = nodes && nodes.length === 1 ? nodes[0] : null;
+            if (!n) { node = null; return; }
+            node = n;
+            const sig = JSON.stringify(n.actions || []);
+            if (sig === renderedSig) return;
+            renderedSig = sig;
+            renderList(n.actions || []);
+          },
+          destroy() {}
+        };
+      }
+
+      app.ui.registerInspectorSection({
+        id: 'actions',
+        title: 'Actions',
+        order: 55,
+        applies: (nodes) => nodes.length === 1 && APPLIES_TYPES.includes(nodes[0].type),
+        mount
+      });
+    }
+  });
+})();
 </script>
 <script data-src="js/features/templates.js">
-/* stub — owned by C2 */
+/* @node-testable */
+/*
+ * templates — a small starter-section gallery (ARCHITECTURE.md §8 Insert panel; PLAN C2).
+ * `list()`/`build(id)` are pure (node specs only, no store access) so they're unit-testable; the
+ * plugin at the bottom wires the gallery dialog, an `insert.template` command and an Insert-menu
+ * entry. Every template's root is a `section`, so `docops.insert` with no explicit parent already
+ * does the right thing — sections default to the current page root (ARCHITECTURE.md "Contract
+ * additions" — A2 `docops`), landing the template at the end of the page exactly like the Section
+ * draw tool would.
+ */
+APB.define('templates', ['util'], function (util) {
+  'use strict';
+
+  if (typeof APB !== 'undefined' && APB.has('icons')) {
+    APB.require('icons').add('templates', 'R3 3 8 8 1.5|R13 3 8 8 1.5|R3 13 8 8 1.5|R13 13 8 8 1.5');
+  }
+
+  const text = (str, style, sizing) => ({ type: 'text', props: { text: str }, style: style || {}, sizing: sizing || { w: 'fill', h: 'hug' } });
+
+  const TEMPLATES = [
+    {
+      id: 'hero', label: 'Hero', icon: 'section',
+      description: 'Centered headline, subtext and a call-to-action button.',
+      build: () => ({
+        type: 'section', name: 'Hero',
+        sizing: { w: 'fill', h: 'hug' },
+        layout: { mode: 'stack', dir: 'column', gap: 20, align: 'center', justify: 'center', pad: [96, 48, 96, 48] },
+        style: { fill: '#eef2ff' },
+        children: [
+          text('Build better pages, faster', { fontSize: 44, fontWeight: 800, textAlign: 'center', color: '#0f172a', lineHeight: 1.15 }),
+          text('Drag, arrange, style and export a real, dependency-free page — all in the browser.',
+            { fontSize: 18, textAlign: 'center', color: '#475569', lineHeight: 1.5 }),
+          {
+            type: 'button', name: 'CTA', props: { text: 'Get started' },
+            style: { fill: '#2563eb', color: '#ffffff', radius: 10, fontWeight: 600 },
+            sizing: { w: 'fixed', h: 'fixed' }, w: 176, h: 52
+          }
+        ]
+      })
+    },
+    {
+      id: 'pricing', label: 'Pricing', icon: 'table',
+      description: 'Three plan cards side by side, ready to relabel.',
+      build: () => {
+        const plans = [
+          { name: 'Starter', price: '$19', blurb: 'For solo projects and experiments.', accent: '#ffffff', border: '#e2e8f0' },
+          { name: 'Pro', price: '$49', blurb: 'For growing teams that ship often.', accent: '#eff6ff', border: '#93c5fd' },
+          { name: 'Scale', price: '$99', blurb: 'For advanced, multi-site workflows.', accent: '#ffffff', border: '#e2e8f0' }
+        ];
+        return {
+          type: 'section', name: 'Pricing',
+          sizing: { w: 'fill', h: 'hug' },
+          layout: { mode: 'stack', dir: 'row', gap: 24, align: 'stretch', justify: 'center', wrap: true, pad: [64, 48, 64, 48] },
+          style: { fill: '#ffffff' },
+          children: plans.map((p) => ({
+            type: 'frame', name: p.name + ' plan',
+            sizing: { w: 'fixed', h: 'hug' }, w: 260,
+            layout: { mode: 'stack', dir: 'column', gap: 12, align: 'stretch', pad: [28, 24, 28, 24] },
+            style: { fill: p.accent, borderColor: p.border, borderWidth: 1, radius: 16, shadow: '0 12px 28px rgba(15,23,42,.08)' },
+            children: [
+              text(p.name, { fontSize: 15, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5 }),
+              text(p.price + ' /mo', { fontSize: 34, fontWeight: 800, color: '#0f172a' }),
+              text(p.blurb, { fontSize: 14, color: '#475569', lineHeight: 1.5 }),
+              {
+                type: 'button', props: { text: 'Choose ' + p.name },
+                style: { fill: '#2563eb', color: '#ffffff', radius: 10, fontWeight: 600 },
+                sizing: { w: 'fill', h: 'fixed' }, h: 44
+              }
+            ]
+          }))
+        };
+      }
+    },
+    {
+      id: 'contact', label: 'Contact form', icon: 'html',
+      description: 'A heading plus a real HTML form (name, email, message).',
+      build: () => ({
+        type: 'section', name: 'Contact',
+        sizing: { w: 'fill', h: 'hug' },
+        layout: { mode: 'stack', dir: 'column', gap: 20, align: 'center', pad: [72, 48, 72, 48] },
+        style: { fill: '#f8fafc' },
+        children: [
+          text('Get in touch', { fontSize: 32, fontWeight: 800, textAlign: 'center', color: '#0f172a' }),
+          text('We usually reply within a business day.', { fontSize: 16, textAlign: 'center', color: '#475569' }),
+          {
+            type: 'html', name: 'Form',
+            sizing: { w: 'fixed', h: 'hug' }, w: 420,
+            props: {
+              html: '<form style="display:grid;gap:12px;">' +
+                '<label style="display:grid;gap:4px;font:600 13px system-ui;color:#334155;">Name' +
+                '<input type="text" name="name" placeholder="Your name" style="padding:10px;border:1px solid #cbd5e1;border-radius:8px;font:14px system-ui;"></label>' +
+                '<label style="display:grid;gap:4px;font:600 13px system-ui;color:#334155;">Email' +
+                '<input type="email" name="email" placeholder="you@example.com" style="padding:10px;border:1px solid #cbd5e1;border-radius:8px;font:14px system-ui;"></label>' +
+                '<label style="display:grid;gap:4px;font:600 13px system-ui;color:#334155;">Message' +
+                '<textarea name="message" rows="4" placeholder="How can we help?" style="padding:10px;border:1px solid #cbd5e1;border-radius:8px;font:14px system-ui;resize:vertical;"></textarea></label>' +
+                '<button type="submit" style="padding:10px 16px;border:0;border-radius:8px;background:#2563eb;color:#fff;font:600 14px system-ui;cursor:pointer;">Send message</button>' +
+                '</form>'
+            }
+          }
+        ]
+      })
+    }
+  ];
+
+  function list() {
+    return TEMPLATES.map((t) => ({ id: t.id, label: t.label, icon: t.icon, description: t.description }));
+  }
+
+  function build(id) {
+    const t = TEMPLATES.find((x) => x.id === id);
+    return t ? util.deepClone(t.build()) : null;
+  }
+
+  const api = { list, build };
+
+  if (typeof APB !== 'undefined' && APB.plugin) {
+    APB.plugin({
+      id: 'templates',
+      order: 45,
+      requires: ['widgets', 'icons'],
+      init(app) {
+        const widgets = APB.require('widgets');
+        const icons = APB.require('icons');
+        const { h } = widgets;
+
+        function insertTemplate(id) {
+          const spec = build(id);
+          if (!spec) return;
+          const docops = app.docops;
+          const ids = docops.insert(app, [spec], { label: 'Insert ' + (TEMPLATES.find((t) => t.id === id) || {}).label, select: true });
+          if (ids && ids.length && app.canvas && app.canvas.viewport && typeof app.canvas.viewport.zoomToSelection === 'function') {
+            app.canvas.viewport.zoomToSelection();
+          }
+          if (app.ui && app.ui.announce) app.ui.announce('Template inserted');
+        }
+
+        function openGallery() {
+          if (!app.ui || typeof app.ui.dialog !== 'function') return;
+          const dlg = app.ui.dialog({
+            title: 'Insert a template', wide: true,
+            content: h('div', { class: 'apb-templates-grid' }, list().map((t) => {
+              const card = h('button', { type: 'button', class: 'apb-template-card' },
+                h('div', { class: 'apb-template-card-thumb' }, icons.get(t.icon, { size: 28 })),
+                h('div', { class: 'apb-template-card-title' }, t.label),
+                h('div', { class: 'apb-template-card-desc' }, t.description));
+              card.addEventListener('click', () => { insertTemplate(t.id); dlg.close(); });
+              return card;
+            })),
+            actions: [{ label: 'Close', kind: 'cancel' }]
+          });
+        }
+
+        if (app.commands && !app.commands.get('insert.template')) {
+          app.commands.register({
+            id: 'insert.template', title: 'Insert template…', category: 'Insert', icon: 'templates',
+            when: (a) => !!(a.store.doc.pages && a.store.doc.pages.length),
+            run: () => openGallery()
+          });
+        }
+        if (typeof app.ui.registerMenuItem === 'function') {
+          app.ui.registerMenuItem({ menu: 'insert', command: 'insert.template', order: 10 });
+        }
+      }
+    });
+  }
+
+  return api;
+});
 </script>
 <script data-src="js/features/library.js">
 /* stub — owned by C2 */
@@ -25626,10 +26400,550 @@ APB.define('tokens', ['util', 'schema', 'color', 'docops', 'widgets', 'icons'],
 /* stub — owned by C3 */
 </script>
 <script data-src="js/features/exporters.js">
-/* stub — owned by C3 */
+/* @node-testable */
+/*
+ * exporters — `services.exporters` (ARCHITECTURE.md §11): turns a document into standalone,
+ * dependency-free HTML/CSS(/JS). Pure string building (no DOM at call time — every function here
+ * works in Node), so it can be unit-tested directly; the plugin at the bottom only attaches
+ * `app.services.exporters` and a toolbar "Export" button.
+ *
+ * `html()` renders the base breakpoint once for markup, then re-renders at every other breakpoint
+ * to diff declarations per node class into `@media (max-width)` blocks (`style.diffDecls`) —
+ * the class name is a short id (`n-<id>`), stable across breakpoints so the diff lines up.
+ * A `<script>` with `actions.runtimeSource()` is appended only when the document actually uses
+ * node actions (`core/actions.js`); that's also the only time nodes get `data-node-id`, since the
+ * runtime targets other nodes by it.
+ */
+APB.define('exporters', ['schema', 'vdom', 'style', 'sanitize', 'util', 'actions'], function (schema, vdom, style, sanitize, util, actionsMod) {
+  'use strict';
+
+  function shortClass(id) {
+    return 'n-' + String(id).replace(/^n_/, '');
+  }
+
+  function pageFor(doc, pageId) {
+    const pages = Array.isArray(doc && doc.pages) ? doc.pages : [];
+    return pages.find((p) => p.id === pageId) || pages[0] || null;
+  }
+
+  function docHasActions(doc) {
+    const nodes = doc && doc.nodes;
+    if (!util.isPlainObject(nodes)) return false;
+    for (const id of Object.keys(nodes)) {
+      const n = nodes[id];
+      if (n && Array.isArray(n.actions) && n.actions.length) return true;
+    }
+    return false;
+  }
+
+  /** Light, safe CSS minifier: this app only ever feeds it CSS it built itself (not arbitrary input). */
+  function minifyCSS(css) {
+    return css.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, ' ').replace(/\s*([{}:;,])\s*/g, '$1').replace(/;}/g, '}').trim();
+  }
+
+  function base64ToBytes(b64) {
+    if (typeof atob !== 'function') return null;
+    let bin;
+    try { bin = atob(b64); } catch (err) { return null; }
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  }
+
+  const DATA_URL_RE = /^data:([^;,]+)(;charset=[^;,]+)?;base64,([\s\S]*)$/i;
+
+  /** assetResolver({ inlineAssets }) → { assetURL(id), files } — extracts data: assets to files when inlining is off. */
+  function assetResolver(doc, opts) {
+    const files = [];
+    const paths = new Map();
+    let seq = 0;
+    function assetURL(id) {
+      const asset = doc.assets && doc.assets[id];
+      if (!asset || typeof asset.src !== 'string') return '';
+      const safe = sanitize.url(asset.src, 'image') || sanitize.url(asset.src, 'media') || '';
+      if (opts.inlineAssets !== false || !safe) return safe;
+      if (paths.has(id)) return paths.get(id);
+      const m = DATA_URL_RE.exec(safe);
+      if (!m) { paths.set(id, safe); return safe; }
+      const mime = m[1];
+      const bytes = base64ToBytes(m[3]);
+      if (!bytes) { paths.set(id, safe); return safe; }
+      const ext = (mime.split('/')[1] || 'bin').replace(/[^a-z0-9]/gi, '').slice(0, 8) || 'bin';
+      const base = sanitize.id(asset.name || id) || id;
+      const path = 'assets/' + base + '-' + (++seq) + '.' + ext;
+      files.push({ path, data: bytes, mime });
+      paths.set(id, path);
+      return path;
+    }
+    return { assetURL, files };
+  }
+
+  function metaHTML(doc, page, opts) {
+    const seo = util.isPlainObject(page && page.seo) ? page.seo : {};
+    const title = util.escapeHTML(seo.title || (page && page.name) || (doc && doc.name) || 'Untitled');
+    const lines = [
+      '<meta charset="UTF-8">',
+      '<meta name="viewport" content="width=device-width, initial-scale=1">'
+    ];
+    if (seo.description) lines.push('<meta name="description" content="' + util.escapeAttr(seo.description) + '">');
+    const ogTitle = seo.title || (page && page.name) || '';
+    if (ogTitle) lines.push('<meta property="og:title" content="' + util.escapeAttr(ogTitle) + '">');
+    if (seo.description) lines.push('<meta property="og:description" content="' + util.escapeAttr(seo.description) + '">');
+    if (seo.ogImage) {
+      const u = sanitize.url(seo.ogImage, 'image');
+      if (u) lines.push('<meta property="og:image" content="' + util.escapeAttr(u) + '">');
+    }
+    if (seo.canonical) {
+      const u = sanitize.url(seo.canonical, 'link');
+      if (u) lines.push('<link rel="canonical" href="' + util.escapeAttr(u) + '">');
+    }
+    if (seo.noindex) lines.push('<meta name="robots" content="noindex, nofollow">');
+    lines.push('<meta name="referrer" content="strict-origin-when-cross-origin">');
+    const csp = "default-src 'self'; img-src 'self' data: https:; font-src 'self' https: data:; " +
+      "style-src 'self' 'unsafe-inline'; script-src 'self'" + (opts.withActions ? " 'unsafe-inline'" : '') +
+      "; base-uri 'none'; form-action 'self'";
+    lines.push('<meta http-equiv="Content-Security-Policy" content="' + util.escapeAttr(csp) + '">');
+    const favicon = doc.settings && doc.settings.favicon ? sanitize.url(doc.settings.favicon, 'image') : '';
+    if (favicon) lines.push('<link rel="icon" href="' + util.escapeAttr(favicon) + '">');
+    return { head: lines.join('\n'), title };
+  }
+
+  /**
+   * html(doc, { pageId, minify, inlineAssets = true, includeHidden = false, motion = true,
+   *   sourceComment = true }) → { html, css, files }
+   */
+  function html(doc, opts) {
+    const o = opts || {};
+    const page = pageFor(doc, o.pageId);
+    if (!page || !doc.nodes[page.root]) return null;
+    const minify = !!o.minify;
+    const withActions = docHasActions(doc);
+    const classFor = (eff) => shortClass(eff.id);
+    const baseBp = style.breakpoint(doc, undefined);
+    const { assetURL, files } = assetResolver(doc, o);
+
+    const baseClasses = new Map();
+    const hoverRules = [];
+    const htmlTree = vdom.buildTree(doc, page.root, {
+      mode: 'export', bp: baseBp.id, classFor, withIds: withActions, includeHidden: !!o.includeHidden, assetURL,
+      onNode: (info) => {
+        const cls = classFor(info.node);
+        baseClasses.set(cls, info.decls);
+        const hover = style.hoverDecls(info.node, doc);
+        if (hover.size) hoverRules.push({ cls, decls: hover });
+      }
+    });
+    if (!htmlTree) return null;
+
+    const bps = (doc.settings && Array.isArray(doc.settings.breakpoints) && doc.settings.breakpoints.length)
+      ? doc.settings.breakpoints : schema.DEFAULT_BREAKPOINTS;
+    const mediaBlocks = [];
+    for (let i = 1; i < bps.length; i++) {
+      const bp = bps[i];
+      const bpClasses = new Map();
+      vdom.buildTree(doc, page.root, {
+        mode: 'export', bp: bp.id, classFor, withIds: false, includeHidden: true, assetURL,
+        onNode: (info) => { bpClasses.set(classFor(info.node), info.decls); }
+      });
+      const rules = [];
+      for (const [cls, baseDecls] of baseClasses) {
+        const bpDecls = bpClasses.get(cls);
+        if (!bpDecls) continue;
+        const diff = style.diffDecls(baseDecls, bpDecls);
+        if (diff.size) rules.push('.' + cls + '{' + style.declsToString(diff) + '}');
+      }
+      if (rules.length && Number.isFinite(bp.max)) mediaBlocks.push('@media (max-width:' + bp.max + 'px){' + rules.join('') + '}');
+    }
+
+    const classRules = [];
+    for (const [cls, decls] of baseClasses) if (decls.size) classRules.push('.' + cls + '{' + style.declsToString(decls) + '}');
+    const hoverCSS = hoverRules.filter((r) => r.decls.size).map((r) => '.' + r.cls + ':hover{' + style.declsToString(r.decls) + '}');
+    const tokensCSS = style.tokensCSS(doc);
+    const globalCSS = doc.settings && typeof doc.settings.globalCSS === 'string' ? sanitize.stylesheet(doc.settings.globalCSS) : '';
+
+    let css = [tokensCSS, classRules.join(''), hoverCSS.join(''), mediaBlocks.join(''), globalCSS].filter(Boolean).join('\n');
+    if (minify) css = minifyCSS(css);
+
+    const bodyHTML = vdom.toHTML(htmlTree, { pretty: !minify });
+    const script = withActions ? '<script>' + actionsMod.runtimeSource() + '<\/script>' : '';
+    const { head, title } = metaHTML(doc, page, { withActions });
+    const lang = (doc.settings && doc.settings.lang) || 'en';
+    const comment = o.sourceComment !== false ? '<' + '!-- Built with Advanced Page Builder (zero-dependency, single file) --' + '>\n' : '';
+
+    const out = comment +
+      '<!doctype html>\n<html lang="' + util.escapeAttr(lang) + '">\n<head>\n' + head + '\n<title>' + title + '</title>\n' +
+      (css ? '<style>' + css + '</style>\n' : '') + '</head>\n<body>\n' + bodyHTML + (script ? '\n' + script : '') + '\n</body>\n</html>\n';
+
+    return { html: minify ? out.replace(/\n+/g, '\n') : out, css, files };
+  }
+
+  /** site(doc, opts) → files [{ path, data, mime }] — one HTML file per page plus shared assets. */
+  function site(doc, opts) {
+    const o = opts || {};
+    const pages = Array.isArray(doc.pages) ? doc.pages : [];
+    const files = [];
+    const seenAssets = new Set();
+    for (const page of pages) {
+      const out = html(doc, Object.assign({}, o, { pageId: page.id }));
+      if (!out) continue;
+      const path = page.slug === 'index' || !page.slug ? 'index.html' : page.slug + '.html';
+      files.push({ path, data: out.html, mime: 'text/html; charset=utf-8' });
+      for (const f of out.files) {
+        if (seenAssets.has(f.path)) continue;
+        seenAssets.add(f.path);
+        files.push(f);
+      }
+    }
+    return files;
+  }
+
+  /** json(doc) → pretty JSON string of the document as-is (the `.apb.json` project format). */
+  function jsonExport(doc) {
+    return JSON.stringify(doc, null, 2);
+  }
+
+  /* ------------------------------------------------------------------- zip */
+
+  const CRC_TABLE = (function () {
+    const t = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = c & 1 ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+      t[n] = c >>> 0;
+    }
+    return t;
+  }());
+
+  function crc32(bytes) {
+    let c = 0xffffffff;
+    for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  }
+
+  function toBytes(data) {
+    if (data instanceof Uint8Array) return data;
+    if (typeof data === 'string') {
+      if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(data);
+      const out = [];
+      for (let i = 0; i < data.length; i++) out.push(data.charCodeAt(i) & 0xff);
+      return new Uint8Array(out);
+    }
+    return new Uint8Array(0);
+  }
+
+  function dosDateTime() {
+    const d = new Date();
+    const time = ((d.getHours() & 0x1f) << 11) | ((d.getMinutes() & 0x3f) << 5) | ((d.getSeconds() >> 1) & 0x1f);
+    const date = (((d.getFullYear() - 1980) & 0x7f) << 9) | (((d.getMonth() + 1) & 0xf) << 5) | (d.getDate() & 0x1f);
+    return { time, date };
+  }
+
+  function writeU16(arr, v) { arr.push(v & 0xff, (v >>> 8) & 0xff); }
+  function writeU32(arr, v) { arr.push(v & 0xff, (v >>> 8) & 0xff, (v >>> 16) & 0xff, (v >>> 24) & 0xff); }
+
+  /** zip(files: [{ path, data, mime }]) → Blob — zero-dep ZIP, STORE (uncompressed) method. */
+  function zip(files) {
+    const list = (Array.isArray(files) ? files : []).filter((f) => f && typeof f.path === 'string' && f.path);
+    const chunks = [];
+    const central = [];
+    let offset = 0;
+    const { time, date } = dosDateTime();
+    for (const f of list) {
+      const nameBytes = toBytes(f.path.replace(/\\/g, '/'));
+      const data = toBytes(f.data);
+      const crc = crc32(data);
+      const local = [];
+      writeU32(local, 0x04034b50);
+      writeU16(local, 20); writeU16(local, 0); writeU16(local, 0);
+      writeU16(local, time); writeU16(local, date);
+      writeU32(local, crc); writeU32(local, data.length); writeU32(local, data.length);
+      writeU16(local, nameBytes.length); writeU16(local, 0);
+      const localHeader = new Uint8Array(local);
+      chunks.push(localHeader, nameBytes, data);
+      const localSize = localHeader.length + nameBytes.length + data.length;
+
+      const cd = [];
+      writeU32(cd, 0x02014b50);
+      writeU16(cd, 20); writeU16(cd, 20); writeU16(cd, 0); writeU16(cd, 0);
+      writeU16(cd, time); writeU16(cd, date);
+      writeU32(cd, crc); writeU32(cd, data.length); writeU32(cd, data.length);
+      writeU16(cd, nameBytes.length); writeU16(cd, 0); writeU16(cd, 0);
+      writeU16(cd, 0); writeU16(cd, 0); writeU32(cd, 0);
+      writeU32(cd, offset);
+      central.push(new Uint8Array(cd), nameBytes);
+      offset += localSize;
+    }
+    const centralStart = offset;
+    let centralSize = 0;
+    for (const c of central) centralSize += c.length;
+    const eocd = [];
+    writeU32(eocd, 0x06054b50);
+    writeU16(eocd, 0); writeU16(eocd, 0);
+    writeU16(eocd, list.length); writeU16(eocd, list.length);
+    writeU32(eocd, centralSize); writeU32(eocd, centralStart);
+    writeU16(eocd, 0);
+    const parts = chunks.concat(central, [new Uint8Array(eocd)]);
+    return new Blob(parts, { type: 'application/zip' });
+  }
+
+  /* ------------------------------------------------------------------- jsx */
+
+  const JSX_PROP_ALIASES = { class: 'className', for: 'htmlFor' };
+  const JSX_VOID = vdom.VOID;
+
+  function jsxAttrs(v) {
+    const attrs = util.isPlainObject(v.attrs) ? v.attrs : {};
+    const out = [];
+    for (const key of Object.keys(attrs)) {
+      if (key === 'data-node-id') continue;
+      const val = attrs[key];
+      const prop = JSX_PROP_ALIASES[key] || key.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+      if (val === true) out.push(prop + '={true}');
+      else if (typeof val === 'string') out.push(prop + '="' + val.replace(/"/g, '&quot;') + '"');
+    }
+    if (util.isPlainObject(v.style) && Object.keys(v.style).length) {
+      const decls = Object.keys(v.style).map((k) => k + ': ' + JSON.stringify(v.style[k])).join(', ');
+      out.push('style={{' + decls + '}}');
+    }
+    return out.length ? ' ' + out.join(' ') : '';
+  }
+
+  function jsxNode(v, depth) {
+    if (v === null || v === undefined || v === false) return '';
+    if (typeof v === 'string') return util.escapeHTML(v);
+    if (typeof v !== 'object') return '';
+    const tag = String(v.tag || 'div');
+    const attrs = jsxAttrs(v);
+    if (JSX_VOID.has(tag)) return '<' + tag + attrs + ' />';
+    let inner = '';
+    if (typeof v.text === 'string') inner = util.escapeHTML(v.text);
+    else if (typeof v.html === 'string') return '<' + tag + attrs + ' dangerouslySetInnerHTML={{ __html: ' + JSON.stringify(v.html) + ' }} />';
+    else if (Array.isArray(v.children)) inner = v.children.map((c) => jsxNode(c, depth + 1)).join('');
+    return '<' + tag + attrs + '>' + inner + '</' + tag + '>';
+  }
+
+  /** jsx(doc, { pageId }) → string — a self-contained React component (inline styles, no classes). */
+  function jsx(doc, opts) {
+    const o = opts || {};
+    const page = pageFor(doc, o.pageId);
+    if (!page || !doc.nodes[page.root]) return null;
+    const baseBp = style.breakpoint(doc, undefined);
+    const tree = vdom.buildTree(doc, page.root, { mode: 'export', bp: baseBp.id, withIds: false, includeHidden: !!o.includeHidden, inlineStyles: true });
+    if (!tree) return null;
+    const name = util.isPlainObject(page.seo) && page.seo.title ? page.seo.title : (page.name || 'Page');
+    const compName = (name.replace(/[^A-Za-z0-9]/g, ' ').trim().split(/\s+/).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join('') || 'Page');
+    const tokensCSS = style.tokensCSS(doc);
+    const body = jsxNode(tree, 0);
+    return 'export default function ' + compName + '() {\n  return (\n    <>\n' +
+      (tokensCSS ? '      <style>{' + JSON.stringify(tokensCSS) + '}</style>\n' : '') +
+      '      ' + body + '\n    </>\n  );\n}\n';
+  }
+
+  const api = { html, site, zip, json: jsonExport, jsx, shortClass, docHasActions };
+
+  if (typeof APB !== 'undefined' && APB.plugin) {
+    APB.plugin({
+      id: 'exporters',
+      order: 60,
+      requires: ['widgets', 'icons'],
+      init(app) {
+        app.services = app.services || {};
+        app.services.exporters = api;
+        const widgets = APB.require('widgets');
+        const { h } = widgets;
+
+        function downloadBlob(blob, filename) {
+          if (typeof document === 'undefined') return;
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }
+
+        function pageChoices() {
+          const pages = (app.store.doc.pages || []);
+          return pages.map((p) => ({ value: p.id, label: p.name || p.slug || p.id }));
+        }
+
+        function openExportDialog() {
+          if (!app.ui || typeof app.ui.dialog !== 'function') return;
+          const pages = app.store.doc.pages || [];
+          if (!pages.length) { if (app.ui.toast) app.ui.toast('Add a page before exporting'); return; }
+          let pageId = app.store.view.pageId || pages[0].id;
+          let format = 'html';
+          let minify = false;
+          let inlineAssets = true;
+
+          const code = h('pre', { class: 'apb-export-code', tabindex: '0' });
+          const meta = h('div', { class: 'apb-export-meta' });
+
+          function currentText() {
+            if (format === 'json') return jsonExport(app.store.doc);
+            const out = html(app.store.doc, { pageId, minify, inlineAssets, sourceComment: true });
+            return out ? out.html : '// Nothing to export';
+          }
+
+          function refresh() {
+            const text = currentText();
+            code.textContent = text;
+            meta.textContent = util.formatBytes(new Blob([text]).size) + (format === 'html' && !inlineAssets ? ' · assets extracted separately in a .zip' : '');
+          }
+
+          const controls = [];
+          if (pages.length > 1) {
+            controls.push(widgets.select({
+              ariaLabel: 'Page', options: pageChoices(), value: pageId,
+              onInput: (v) => { pageId = v; refresh(); }
+            }));
+          }
+          controls.push(widgets.select({
+            ariaLabel: 'Format', value: format,
+            options: [{ value: 'html', label: 'HTML' }, { value: 'json', label: 'Project JSON' }],
+            onInput: (v) => { format = v; refresh(); }
+          }));
+          controls.push(widgets.toggle({ label: 'Minify', checked: minify, onInput: (v) => { minify = v; refresh(); } }));
+          controls.push(widgets.toggle({ label: 'Inline assets', checked: inlineAssets, onInput: (v) => { inlineAssets = v; refresh(); } }));
+
+          refresh();
+          const content = h('div', { class: 'apb-export-dialog' },
+            h('div', { class: 'apb-export-controls' }, controls),
+            code, meta);
+
+          app.ui.dialog({
+            title: 'Export code', wide: true, content,
+            actions: [
+              {
+                label: 'Copy', icon: 'copy',
+                run: (close) => {
+                  const text = currentText();
+                  if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(text).then(
+                      () => { if (app.ui.toast) app.ui.toast('Copied to clipboard'); },
+                      () => { if (app.ui.toast) app.ui.toast('Clipboard access was blocked', { kind: 'warning' }); }
+                    );
+                  }
+                }
+              },
+              {
+                label: 'Download', icon: 'export', kind: 'primary',
+                run: (close) => {
+                  if (format === 'json') { downloadBlob(new Blob([currentText()], { type: 'application/json' }), (app.store.doc.name || 'site') + '.apb.json'); return; }
+                  if (!inlineAssets) {
+                    const out = html(app.store.doc, { pageId, minify, inlineAssets, sourceComment: true });
+                    if (out && out.files.length) {
+                      const page = pages.find((p) => p.id === pageId);
+                      const files = [{ path: (page && page.slug) ? page.slug + '.html' : 'index.html', data: out.html, mime: 'text/html' }].concat(out.files);
+                      downloadBlob(zip(files), (app.store.doc.name || 'site') + '.zip');
+                      return;
+                    }
+                  }
+                  downloadBlob(new Blob([currentText()], { type: 'text/html' }), (app.store.doc.name || 'page') + '.html');
+                }
+              },
+              { label: 'Close', kind: 'cancel' }
+            ]
+          });
+        }
+
+        if (app.commands && !app.commands.get('file.exportCode')) {
+          app.commands.register({
+            id: 'file.exportCode', title: 'Export code…', category: 'File', icon: 'export', keys: ['Mod+E'],
+            when: (a) => !!(a.store.doc.pages && a.store.doc.pages.length),
+            run: () => openExportDialog()
+          });
+        }
+        if (typeof app.ui.registerToolbarItem === 'function') {
+          app.ui.registerToolbarItem({
+            id: 'export', area: 'end', order: 21,
+            render: (a) => widgets.iconButton({
+              icon: 'export', label: 'Export code',
+              shortcut: a.commands.get('file.exportCode') ? a.commands.keysFor('file.exportCode') : null,
+              onClick: () => (a.commands.get('file.exportCode') ? a.commands.run('file.exportCode') : openExportDialog())
+            })
+          });
+        }
+      }
+    });
+  }
+
+  return api;
+});
 </script>
 <script data-src="js/features/preview.js">
-/* stub — owned by C3 */
+/*
+ * preview — `services.preview` (ARCHITECTURE.md §9): opens the current page, rendered exactly as
+ * `services.exporters.html()` would export it, in a new tab via a `blob:` URL. Not a live/synced
+ * preview — each click re-renders the current document state; the tab is a disposable static page.
+ */
+(function () {
+  'use strict';
+
+  APB.plugin({
+    id: 'preview',
+    order: 61,
+    requires: ['widgets', 'icons'],
+
+    init(app) {
+      const widgets = APB.require('widgets');
+      const win = typeof window !== 'undefined' ? window : null;
+
+      function open(opts) {
+        const o = opts || {};
+        const exporters = app.services && app.services.exporters;
+        if (!exporters || !win || typeof win.open !== 'function') {
+          if (app.ui && app.ui.toast) app.ui.toast('Preview is unavailable in this environment', { kind: 'error' });
+          return null;
+        }
+        const doc = app.store.doc;
+        const pageId = o.pageId || app.store.view.pageId;
+        let out = null;
+        try { out = exporters.html(doc, { pageId, sourceComment: false, includeHidden: false }); } catch (err) {
+          app.log('preview render failed: ' + (err && err.message), { level: 'error' });
+        }
+        if (!out) {
+          if (app.ui && app.ui.toast) app.ui.toast('Add a page before previewing', { kind: 'warning' });
+          return null;
+        }
+        const blob = new Blob([out.html], { type: 'text/html' });
+        const url = URL.createObjectURL(blob);
+        const tab = win.open(url, '_blank');
+        if (!tab) {
+          URL.revokeObjectURL(url);
+          if (app.ui && app.ui.toast) app.ui.toast('Preview blocked — allow pop-ups for this page', { kind: 'warning' });
+          return null;
+        }
+        setTimeout(() => URL.revokeObjectURL(url), 30000);
+        return tab;
+      }
+
+      app.services = app.services || {};
+      app.services.preview = { open };
+
+      if (app.commands && !app.commands.get('view.preview')) {
+        app.commands.register({
+          id: 'view.preview', title: 'Preview page', category: 'View', icon: 'preview', keys: ['Alt+P'],
+          when: (a) => !!(a.store.doc.pages && a.store.doc.pages.length),
+          run: (a) => open({ pageId: a.store.view.pageId })
+        });
+      }
+
+      if (app.ui && typeof app.ui.registerToolbarItem === 'function') {
+        app.ui.registerToolbarItem({
+          id: 'preview', area: 'end', order: 20,
+          render: (a) => widgets.iconButton({
+            icon: 'preview', label: 'Preview page',
+            shortcut: a.commands.get('view.preview') ? a.commands.keysFor('view.preview') : null,
+            onClick: () => (a.commands.get('view.preview') ? a.commands.run('view.preview') : open({}))
+          })
+        });
+      }
+    }
+  });
+})();
 </script>
 <script data-src="js/features/project-ui.js">
 /* stub — owned by C3 */

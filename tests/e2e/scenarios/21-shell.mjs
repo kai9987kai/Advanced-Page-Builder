@@ -43,7 +43,7 @@ export async function run(page, { assert }) {
   assert.deepEqual(base.missing, [], 'app.ui API complete');
   assert.ok(base.toolbar && base.status, 'toolbar and status bar render');
   assert.ok(base.hostHasCanvas && base.hostIsUi, 'canvas mounted into ui.canvasHost');
-  assert.deepEqual(base.tools, ['select', 'hand', 'frame', 'section', 'text', 'rect', 'ellipse', 'line', 'image']);
+  assert.deepEqual(base.tools, ['select', 'hand', 'frame', 'section', 'text', 'rect', 'ellipse', 'line', 'image', 'button', 'checklist']);
   assert.equal(base.selectPressed, 'true');
   assert.equal(base.name, base.docName);
   assert.equal(base.undoDisabled, 'true', 'undo disabled with empty history');
@@ -117,7 +117,7 @@ export async function run(page, { assert }) {
   assert.deepEqual([panels.mounts.a, panels.mounts.b, panels.mounts.r], [1, 0, 1], 'only active panels are mounted (lazy)');
   assert.equal(panels.badge, '3');
   assert.ok(panels.center && panels.end && panels.statusItem, 'toolbar/status items placed in their slots');
-  assert.deepEqual(panels.inspector, ['insp-a', 'insp-b'], 'inspector sections sorted by order');
+  assert.deepEqual(panels.inspector, ['insp-a', 'insp-b', 'actions'], 'inspector sections sorted by order');
 
   // keyboard tab switching
   await page.eval(() => document.querySelector('[role="tab"][data-panel="test-a"]').focus());
